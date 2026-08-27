@@ -90,6 +90,10 @@ td.c-c,td.c-x{text-align:center}td.c-p{text-align:right;font-variant-numeric:tab
 
 /* 確率表は列が多く、狭い画面ではカード名が潰れるので最低幅を持たせて横スクロールさせる */
 #pertable{min-width:28rem}
+#pertable.no-aside{min-width:0}
+#pertable.no-aside th:nth-child(4),#pertable.no-aside td:nth-child(4),
+#pertable.no-aside th:nth-child(5),#pertable.no-aside td:nth-child(5),
+#counttable.no-aside th:nth-child(4),#counttable.no-aside td:nth-child(4){display:none}
 #pertable td.name{min-width:9em}
 .scrollnote{font-size:.72rem;color:var(--muted);margin:6px 0 0}
 @media (min-width:520px){ .scrollnote{display:none} }
@@ -101,6 +105,9 @@ td.c-c,td.c-x{text-align:center}td.c-p{text-align:right;font-variant-numeric:tab
 #cardtable input[type=checkbox]{width:20px;height:20px;accent-color:var(--brand);margin:0}
 .flagcell{display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer}
 .flaglab{font-size:.6rem;color:var(--muted);line-height:1;white-space:nowrap;letter-spacing:-.04em}
+tr.offdeck{opacity:.55}
+.pilepin{font-size:.62rem;background:var(--brand-soft);color:var(--brand);
+  border-radius:4px;padding:1px 5px;white-space:nowrap;font-weight:700}
 .rm{border:none;background:none;color:var(--muted);font-size:1.1rem;padding:2px;min-width:0;width:100%}
 
 /* ---- summary / stats ---- */
@@ -136,3 +143,94 @@ td.c-c,td.c-x{text-align:center}td.c-p{text-align:right;font-variant-numeric:tab
 
 footer{max-width:760px;margin:0 auto;padding:26px 16px;text-align:center;color:var(--muted);font-size:.75rem}
 footer p{margin:3px 0}
+
+/* ==================== 画面切り替えタブ ==================== */
+.tabs{display:flex;gap:6px;justify-content:center;margin-top:12px}
+.tabs a{
+  color:#fff;text-decoration:none;font-size:.82rem;font-weight:600;
+  padding:6px 16px;border-radius:999px;background:rgba(255,255,255,.16);
+}
+.tabs a.on{background:#fff;color:var(--brand)}
+
+/* ==================== 一人回し ==================== */
+body.has-bar main{padding-bottom:96px}
+
+.actionbar{
+  position:fixed;left:0;right:0;bottom:0;z-index:40;
+  display:flex;gap:5px;padding:8px 8px calc(8px + env(safe-area-inset-bottom));
+  background:var(--panel);border-top:1px solid var(--line);
+}
+.actionbar button{
+  flex:1 1 0;min-width:0;padding:11px 1px;font-size:.72rem;font-weight:700;border-radius:9px;
+  line-height:1.2;letter-spacing:-.03em;
+}
+
+.statusbar{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}
+.st{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 11px;text-align:center;flex:1 1 auto}
+.st .l{display:block;font-size:.66rem;color:var(--muted);line-height:1.3}
+.st .v{display:block;font-size:1.15rem;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.25}
+.st.bad .v{color:var(--bad)}
+
+.zone,.handbox{margin-bottom:12px}
+.handbox{border-top:2px solid var(--brand);padding-top:10px;margin-top:4px}
+.zonehead{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.zname{font-size:.76rem;font-weight:700;color:var(--muted)}
+.zcount{font-size:.7rem;color:var(--muted);font-variant-numeric:tabular-nums;
+  background:var(--bg);border-radius:999px;padding:1px 8px;border:1px solid var(--line)}
+.minibtn{margin-left:auto;flex:none;min-width:0;padding:3px 10px;font-size:.68rem;border-radius:999px;font-weight:600}
+
+.cardgrid{display:flex;flex-wrap:wrap;gap:5px;align-items:flex-start}
+.cardgrid .empty{font-size:.76rem;color:var(--muted);padding:4px 2px}
+
+.chipcard{
+  flex:0 1 auto;min-width:0;max-width:100%;
+  font-size:.74rem;font-weight:600;line-height:1.3;text-align:left;
+  padding:7px 9px;border-radius:8px;border:1px solid var(--line);
+  background:var(--bg);color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  border-left-width:4px;
+}
+.chipcard.c1{border-left-color:#e0533f} .chipcard.c2{border-left-color:#2f7de0}
+.chipcard.c3{border-left-color:#8a8fb0} .chipcard.c4{border-left-color:#b06fd8}
+.chipcard.c5{border-left-color:#12a06a} .chipcard.c6{border-left-color:#e0a01a}
+.chipcard.facedown{
+  background:repeating-linear-gradient(45deg,var(--brand-soft),var(--brand-soft) 5px,var(--bg) 5px,var(--bg) 10px);
+  color:var(--muted);min-width:44px;text-align:center;border-left-color:var(--muted);
+}
+
+.log{list-style:none;padding:0;margin:0;font-size:.78rem;max-height:280px;overflow-y:auto}
+.log li{padding:5px 0;border-bottom:1px solid var(--line);display:flex;gap:8px;line-height:1.5}
+.log .lt{flex:none;color:var(--muted);font-size:.68rem;font-weight:700;
+  background:var(--bg);border-radius:5px;padding:1px 6px;height:fit-content;margin-top:2px}
+
+button.ok{background:var(--good);color:#fff;border-color:transparent}
+button.ng{background:var(--bad);color:#fff;border-color:transparent}
+
+/* ---- シート ---- */
+.sheet-bg{position:fixed;inset:0;z-index:60;background:rgba(10,12,24,.55);
+  display:flex;align-items:flex-end;justify-content:center}
+/* .hidden より後に display を指定しているので、打ち消しを明示しておく */
+.sheet-bg.hidden,.actionbar.hidden,.actionbar button.hidden{display:none}
+.sheet{
+  background:var(--panel);width:100%;max-width:760px;border-radius:16px 16px 0 0;
+  padding:16px 16px calc(16px + env(safe-area-inset-bottom));
+  max-height:80vh;overflow-y:auto;
+}
+.sheet.tall{min-height:55vh}
+.sheet h3{margin:0 0 4px;font-size:1rem;overflow-wrap:anywhere}
+.sheet-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(124px,1fr));gap:7px;margin:12px 0}
+.sheet-actions button{padding:12px 8px;font-size:.82rem}
+.sheet-close{width:100%;margin-top:6px;background:var(--brand);color:#fff;border-color:transparent}
+.sheet .cardgrid{margin-top:10px}
+
+.toast{
+  position:fixed;left:50%;bottom:96px;transform:translateX(-50%) translateY(10px);
+  background:var(--ink);color:var(--panel);padding:10px 18px;border-radius:999px;
+  font-size:.8rem;font-weight:600;z-index:80;opacity:0;pointer-events:none;
+  transition:opacity .18s,transform .18s;max-width:88vw;text-align:center;
+}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+
+details#rules-details{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+details#rules-details summary{font-size:.82rem;font-weight:700;cursor:pointer;color:var(--brand)}
+details#rules-details .fields{margin-top:12px}

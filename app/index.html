@@ -4,21 +4,25 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#4f46e5">
-<title>デッキ確率ラボ</title>
+<title>確率ラボ</title>
 <meta name="description" content="デッキリストから初手・コンボ成立確率・サイド落ち確率を計算するオフライン対応ツール">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="デッキ確率ラボ">
+<meta name="apple-mobile-web-app-title" content="確率ラボ">
 <link rel="stylesheet" href="./style.css">
 </head>
 <body>
 
 <header class="appbar">
-  <h1>デッキ確率ラボ</h1>
-  <p class="sub">60枚デッキの確率をきっちり計算する</p>
+  <h1>確率ラボ</h1>
+  <p class="sub">デッキの確率をきっちり計算する</p>
+  <nav class="tabs">
+    <a href="./solo.html">一人回し</a>
+    <a href="./index.html" class="on">確率ラボ</a>
+  </nav>
 </header>
 
 <main>
@@ -26,6 +30,10 @@
 <!-- ============ 1. デッキ入力 ============ -->
 <section class="card" id="sec-input">
   <h2><span class="step">1</span>デッキリスト</h2>
+  <label class="field wide">
+    <span>ゲーム</span>
+    <select id="game"></select>
+  </label>
   <textarea id="decklist" rows="10" spellcheck="false"
     placeholder="1行に「枚数 カード名」で入力します。&#10;&#10;ポケモン 12&#10;4 ホゲータ&#10;3 アチゲータ&#10;&#10;トレーナー 33&#10;4 博士の研究&#10;4 ネストボール&#10;&#10;エネルギー 15&#10;10 基本炎エネルギー"></textarea>
   <div class="btnrow">
@@ -35,9 +43,10 @@
   </div>
   <p class="hint">
     「4 カード名」「カード名 4」のどちらでも読めます。
-    <code>ポケモン:</code> <code>トレーナー:</code> <code>エネルギー:</code> や
-    <code>Pokémon:</code> <code>Trainer:</code> <code>Energy:</code> の見出し行、
-    PTCGL書き出し形式の末尾セット番号(<code>SVI 181</code> など)にも対応します。
+    <code>ポケモン</code> <code>クリーチャー</code> <code>モンスター</code> <code>魔法</code> のような
+    種別の見出し行、PTCGL書き出し形式の末尾セット番号(<code>SVI 181</code> など)にも対応します。
+    <code>エクストラデッキ</code> や <code>超次元</code> の見出しの下に書いたカードは別の山として扱い、
+    確率の計算からは外します。
   </p>
 </section>
 
@@ -52,7 +61,7 @@
   <div class="tablewrap">
     <table id="cardtable">
       <thead>
-        <tr><th class="c-n">枚</th><th>カード名</th><th>種別</th><th class="c-c" title="ポケモンなら「たね」、サポートなら「ドロー」">たね/<br>ドロー</th><th class="c-x"></th></tr>
+        <tr><th class="c-n">枚</th><th>カード名</th><th>種別</th><th class="c-c" id="flag-head" title="ゲームによって意味が変わります"></th><th class="c-x"></th></tr>
       </thead>
       <tbody></tbody>
     </table>
@@ -67,8 +76,8 @@
     <label class="field">
       <span>ルール</span>
       <select id="ruleset">
-        <option value="jp">先攻はドローしない</option>
-        <option value="intl">先攻もドローする</option>
+        <option value="nodraw">先攻はドローしない</option>
+        <option value="draw">先攻もドローする</option>
       </select>
     </label>
     <label class="field">
@@ -113,21 +122,21 @@
           <th>カード</th>
           <th class="c-p" title="初手7枚に1枚以上">初手</th>
           <th class="c-p" title="現在の条件で1枚以上引けている">現条件</th>
-          <th class="c-p" title="1枚以上がサイドに落ちる">サイド落ち</th>
-          <th class="c-p" title="全部サイドに落ちて1枚も使えない">全落ち</th>
+          <th class="c-p" id="aside-head" title="1枚以上が伏せ札に落ちる">サイド落ち</th>
+          <th class="c-p" id="asideall-head" title="全部が伏せ札に落ちて1枚も使えない">全落ち</th>
         </tr>
       </thead>
       <tbody></tbody>
     </table>
   </div>
   <p class="scrollnote">← 表は横にスクロールできます</p>
-  <p class="hint">「初手」「現条件」は<strong>1枚以上</strong>引けている確率です。サイドに落ちた分は引けない前提で計算しています。</p>
+  <p class="hint">「初手」「現条件」は<strong>1枚以上</strong>引けている確率です。伏せ札に落ちた分は引けない前提で計算しています。</p>
 </section>
 
 <!-- ============ 6. コンボ確率 ============ -->
 <section class="card hidden" id="sec-combo">
   <h2><span class="step">6</span>コンボ成立確率</h2>
-  <p class="hint">同時に揃えたいカードを選び、必要枚数を指定します。マリガンの引き直しとサイド落ちを含めてシミュレーションします。</p>
+  <p class="hint">同時に揃えたいカードを選び、必要枚数を指定します。マリガンの引き直しと伏せ札を含めてシミュレーションします。</p>
   <div id="combolist" class="combolist"></div>
   <div class="btnrow">
     <button id="btn-combo" class="primary">計算する(5万回試行)</button>
@@ -148,7 +157,7 @@
       <tbody></tbody>
     </table>
   </div>
-  <p class="hint">デッキは60枚のまま、その分だけ他のカードと入れ替えた場合の比較です。</p>
+  <p class="hint">デッキの総枚数は変えず、その分だけ他のカードと入れ替えた場合の比較です。</p>
 </section>
 
 <footer>
@@ -158,6 +167,7 @@
 
 </main>
 
+<script src="./deck.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>

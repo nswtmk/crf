@@ -1,10 +1,13 @@
 /* オフライン用のごく単純なキャッシュ。ファイルを更新したら CACHE を上げる。 */
-const CACHE = 'deck-prob-lab-v1';
+const CACHE = 'tcg-tools-v2';
 const ASSETS = [
   './',
   './index.html',
+  './solo.html',
   './style.css',
+  './deck.js',
   './app.js',
+  './solo.js',
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png',
