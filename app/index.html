@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#4f46e5">
+<title>確率ラボ</title>
+<meta name="description" content="デッキリストから初手・コンボ成立確率・サイド落ち確率を計算するオフライン対応ツール">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="確率ラボ">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+<header class="appbar">
+  <h1>確率ラボ</h1>
+  <p class="sub">デッキの確率をきっちり計算する</p>
+  <nav class="tabs">
+    <a href="./solo.html">一人回し</a>
+    <a href="./index.html" class="on">確率ラボ</a>
+  </nav>
+</header>
+
+<main>
+
+<!-- ============ 1. デッキ入力 ============ -->
+<section class="card" id="sec-input">
+  <h2><span class="step">1</span>デッキリスト</h2>
+  <label class="field wide">
+    <span>ゲーム</span>
+    <select id="game"></select>
+  </label>
+  <textarea id="decklist" rows="10" spellcheck="false"
+    placeholder="1行に「枚数 カード名」で入力します。&#10;&#10;ポケモン 12&#10;4 ホゲータ&#10;3 アチゲータ&#10;&#10;トレーナー 33&#10;4 博士の研究&#10;4 ネストボール&#10;&#10;エネルギー 15&#10;10 基本炎エネルギー"></textarea>
+  <div class="btnrow">
+    <button id="btn-parse" class="primary">読み込む</button>
+    <button id="btn-sample">サンプル</button>
+    <button id="btn-clear" class="ghost">クリア</button>
+  </div>
+  <p class="hint">
+    「4 カード名」「カード名 4」のどちらでも読めます。
+    <code>ポケモン</code> <code>クリーチャー</code> <code>モンスター</code> <code>魔法</code> のような
+    種別の見出し行、PTCGL書き出し形式の末尾セット番号(<code>SVI 181</code> など)にも対応します。
+    <code>エクストラデッキ</code> や <code>超次元</code> の見出しの下に書いたカードは別の山として扱い、
+    確率の計算からは外します。
+  </p>
+</section>
+
+<!-- ============ 2. カード設定 ============ -->
+<section class="card hidden" id="sec-cards">
+  <h2><span class="step">2</span>カード設定</h2>
+  <p class="notice">
+    <strong>種別・たね・ドローサポの自動判定はあくまで目安です。</strong>
+    計算結果はここの設定に完全に依存するので、必ず目で確認して直してください。
+    とくに<strong>進化ポケモンの「たね」チェックを外す</strong>のを忘れずに。
+  </p>
+  <div class="tablewrap">
+    <table id="cardtable">
+      <thead>
+        <tr><th class="c-n">枚</th><th>カード名</th><th>種別</th><th class="c-c" id="flag-head" title="ゲームによって意味が変わります"></th><th class="c-x"></th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div id="decksummary" class="summary"></div>
+</section>
+
+<!-- ============ 3. 条件 ============ -->
+<section class="card hidden" id="sec-settings">
+  <h2><span class="step">3</span>条件</h2>
+  <div class="fields">
+    <label class="field">
+      <span>ルール</span>
+      <select id="ruleset">
+        <option value="nodraw">先攻はドローしない</option>
+        <option value="draw">先攻もドローする</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>手番</span>
+      <select id="turnorder">
+        <option value="first">先攻</option>
+        <option value="second">後攻</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>ターン</span>
+      <input type="number" id="turn" value="1" min="1" max="30" inputmode="numeric">
+    </label>
+    <label class="field">
+      <span>追加ドロー</span>
+      <input type="number" id="extradraw" value="0" min="0" max="40" inputmode="numeric">
+    </label>
+  </div>
+  <p class="hint">
+    「追加ドロー」は、サポートやグッズで<em>上乗せで引いた枚数</em>を手で入れる欄です
+    (例: 博士の研究を使ったなら 7)。
+    ルールの扱いは自信がない部分なので、<strong>前提として切り替えられる形</strong>にしてあります。
+    実際に使っているルールに合わせてください。
+  </p>
+  <p class="seenbox">この条件で見えているカード: <strong><span id="seencount">7</span> 枚</strong> <span class="seenbreak" id="seenbreak"></span></p>
+</section>
+
+<!-- ============ 4. 診断 ============ -->
+<section class="card hidden" id="sec-diag">
+  <h2><span class="step">4</span>デッキ診断</h2>
+  <div id="statgrid" class="statgrid"></div>
+  <ul id="warnings" class="warnings"></ul>
+</section>
+
+<!-- ============ 5. カード別確率 ============ -->
+<section class="card hidden" id="sec-per">
+  <h2><span class="step">5</span>カード別の確率</h2>
+  <div class="tablewrap">
+    <table id="pertable">
+      <thead>
+        <tr>
+          <th>カード</th>
+          <th class="c-p" title="初手7枚に1枚以上">初手</th>
+          <th class="c-p" title="現在の条件で1枚以上引けている">現条件</th>
+          <th class="c-p" id="aside-head" title="1枚以上が伏せ札に落ちる">サイド落ち</th>
+          <th class="c-p" id="asideall-head" title="全部が伏せ札に落ちて1枚も使えない">全落ち</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="scrollnote">← 表は横にスクロールできます</p>
+  <p class="hint">「初手」「現条件」は<strong>1枚以上</strong>引けている確率です。伏せ札に落ちた分は引けない前提で計算しています。</p>
+</section>
+
+<!-- ============ 6. コンボ確率 ============ -->
+<section class="card hidden" id="sec-combo">
+  <h2><span class="step">6</span>コンボ成立確率</h2>
+  <p class="hint">同時に揃えたいカードを選び、必要枚数を指定します。マリガンの引き直しと伏せ札を含めてシミュレーションします。</p>
+  <div id="combolist" class="combolist"></div>
+  <div class="btnrow">
+    <button id="btn-combo" class="primary">計算する(5万回試行)</button>
+  </div>
+  <div id="comboresult" class="comboresult"></div>
+</section>
+
+<!-- ============ 7. 採用枚数の比較 ============ -->
+<section class="card hidden" id="sec-counts">
+  <h2><span class="step">7</span>採用枚数を変えると</h2>
+  <label class="field wide">
+    <span>対象カード</span>
+    <select id="countcard"></select>
+  </label>
+  <div class="tablewrap">
+    <table id="counttable">
+      <thead><tr><th>採用枚数</th><th class="c-p">初手</th><th class="c-p">現条件</th><th class="c-p">全落ち</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="hint">デッキの総枚数は変えず、その分だけ他のカードと入れ替えた場合の比較です。</p>
+</section>
+
+<footer>
+  <p>すべての計算は端末の中だけで行われます。通信もアカウントも不要です。</p>
+  <p class="ver">v1.0</p>
+</footer>
+
+</main>
+
+<script src="./deck.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#4f46e5">
+<title>一人回し</title>
+<meta name="description" content="デュエマ・ポケカ・遊戯王のデッキを一人で回して回りを確かめるツール">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="一人回し">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body class="solo">
+
+<header class="appbar">
+  <h1>一人回し</h1>
+  <p class="sub">デッキを回して手触りを確かめる</p>
+  <nav class="tabs">
+    <a href="./solo.html" class="on">一人回し</a>
+    <a href="./index.html">確率ラボ</a>
+  </nav>
+</header>
+
+<main>
+
+<!-- ============ 設定 ============ -->
+<section class="card" id="sec-setup">
+  <h2><span class="step">1</span>デッキ</h2>
+
+  <label class="field wide">
+    <span>ゲーム</span>
+    <select id="game"></select>
+  </label>
+
+  <textarea id="decklist" rows="7" spellcheck="false"
+    placeholder="1行に「枚数 カード名」で入力します。&#10;&#10;4 カードA&#10;3 カードB&#10;&#10;エクストラデッキ&#10;2 カードC"></textarea>
+  <div class="btnrow">
+    <button id="btn-load" class="primary">読み込む</button>
+    <button id="btn-sample">サンプル</button>
+  </div>
+  <p class="hint" id="setup-hint"></p>
+
+  <details id="rules-details">
+    <summary>ルールの調整</summary>
+    <div class="fields">
+      <label class="field"><span>初手</span><input type="number" id="r-hand" min="1" max="20" inputmode="numeric"></label>
+      <label class="field"><span id="r-aside-lab">サイド</span><input type="number" id="r-aside" min="0" max="12" inputmode="numeric"></label>
+      <label class="field"><span>マリガン</span>
+        <select id="r-mulligan">
+          <option value="none">なし</option>
+          <option value="basic">たねが無ければ引き直し</option>
+          <option value="shrink">引き直すたび1枚減る</option>
+        </select>
+      </label>
+      <label class="field"><span>先攻1ターン目</span>
+        <select id="r-firstdraw">
+          <option value="draw">ドローする</option>
+          <option value="nodraw">ドローしない</option>
+        </select>
+      </label>
+    </div>
+    <p class="hint">
+      プリセットの数字は初期値です。私の記憶違いもあり得るので、
+      実際に遊んでいるルールに合わせて直してください。
+    </p>
+  </details>
+</section>
+
+<!-- ============ 盤面 ============ -->
+<section class="card hidden" id="sec-board">
+  <div class="statusbar" id="statusbar"></div>
+  <div id="zones"></div>
+
+  <div class="handbox">
+    <div class="zonehead"><span class="zname">手札</span><span class="zcount" id="hand-count">0</span></div>
+    <div class="cardgrid" id="hand"></div>
+  </div>
+</section>
+
+<!-- ============ 記録 ============ -->
+<section class="card hidden" id="sec-record">
+  <h2><span class="step">2</span>記録</h2>
+  <p class="hint">この回の結果を残すと、成功率が積み上がっていきます。「一人回しを何回やって何回まわったか」が数字になります。</p>
+  <div class="btnrow">
+    <button id="btn-ok" class="ok">まわった</button>
+    <button id="btn-ng" class="ng">まわらなかった</button>
+  </div>
+  <div id="records" class="statgrid"></div>
+  <div class="btnrow">
+    <button id="a-restart" class="primary">次の回へ(シャッフルして最初から)</button>
+  </div>
+  <div class="btnrow">
+    <button id="btn-reset-rec" class="ghost">記録を消す</button>
+  </div>
+</section>
+
+<!-- ============ ログ ============ -->
+<section class="card hidden" id="sec-log">
+  <h2><span class="step">3</span>ログ</h2>
+  <ol id="log" class="log"></ol>
+</section>
+
+<footer>
+  <p>すべて端末の中だけで動きます。通信もアカウントも不要です。</p>
+  <p class="ver">v1.0</p>
+</footer>
+
+</main>
+
+<!-- 下部の操作バー -->
+<div class="actionbar hidden" id="actionbar">
+  <button id="a-draw">ドロー</button>
+  <button id="a-search" title="山札を見てサーチする">サーチ</button>
+  <button id="a-shuffle">シャッフル</button>
+  <button id="a-end" class="primary">ターン終了</button>
+  <button id="a-mull" class="hidden" title="1枚減らして引き直す">引き直し</button>
+  <button id="a-undo" title="元に戻す">戻す</button>
+</div>
+
+<!-- カードの移動先を選ぶシート -->
+<div class="sheet-bg hidden" id="sheet-bg">
+  <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <h3 id="sheet-title"></h3>
+    <div class="sheet-actions" id="sheet-actions"></div>
+    <button class="sheet-close" id="sheet-close">閉じる</button>
+  </div>
+</div>
+
+<!-- 山札を見るシート -->
+<div class="sheet-bg hidden" id="deck-bg">
+  <div class="sheet tall" role="dialog" aria-modal="true" aria-labelledby="deck-title">
+    <h3 id="deck-title">山札</h3>
+    <p class="hint" id="deck-note"></p>
+    <div class="cardgrid" id="deck-list"></div>
+    <button class="sheet-close" id="deck-close">閉じてシャッフル</button>
+  </div>
+</div>
+
+<script src="./deck.js"></script>
+<script src="./solo.js"></script>
+</body>
+</html>
