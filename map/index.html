@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1b6b4a">
+<title>足あと地図</title>
+<meta name="description" content="行った場所を地図に記録し、まだ行っていない場所を霧で表示します">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="足あと地図">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+<!-- ============ 地図 ============ -->
+<div id="map"></div>
+
+<div class="attrib">
+  地図: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a> contributors
+</div>
+
+<!-- 進捗バッジ -->
+<button class="badge" id="badge" title="記録を見る">
+  <span class="bnum" id="b-cells">0</span>
+  <span class="blab">マス踏破</span>
+</button>
+
+<!-- 右側の縦ボタン -->
+<div class="sidebtns">
+  <button id="b-locate" title="現在地へ">📍</button>
+  <button id="b-fog" title="霧の表示を切り替え" aria-pressed="true">🌫️</button>
+  <button id="b-zin" title="拡大">＋</button>
+  <button id="b-zout" title="縮小">−</button>
+</div>
+
+<!-- 下部バー -->
+<div class="bottombar">
+  <button id="b-here" class="primary">いまここに記録</button>
+  <button id="b-pick" title="地図から選んで記録">地図で指定</button>
+  <button id="b-list" title="記録一覧">一覧</button>
+  <button id="b-menu" title="設定">⋯</button>
+</div>
+
+<!-- 地図で指定するときの十字 -->
+<div class="crosshair hidden" id="crosshair">
+  <div class="cross"></div>
+  <div class="crosstip">中心の場所を記録します</div>
+</div>
+
+<!-- ============ 記録の編集シート ============ -->
+<div class="sheet-bg hidden" id="edit-bg">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="edit-title">
+    <h3 id="edit-title">ここを記録</h3>
+    <p class="coords" id="edit-coords"></p>
+
+    <label class="field"><span>場所の名前</span>
+      <input type="text" id="f-title" placeholder="例: 高尾山の山頂" maxlength="80"></label>
+
+    <label class="field"><span>メモ</span>
+      <textarea id="f-comment" rows="3" placeholder="どうだったか、何を見たか" maxlength="2000"></textarea></label>
+
+    <label class="field"><span>日付</span>
+      <input type="datetime-local" id="f-date"></label>
+
+    <div class="field">
+      <span>写真</span>
+      <div class="photos" id="f-photos"></div>
+      <label class="addphoto">
+        写真を追加
+        <input type="file" id="f-file" accept="image/*" multiple hidden>
+      </label>
+      <p class="hint" id="exif-hint"></p>
+    </div>
+
+    <div class="btnrow">
+      <button id="f-save" class="primary">保存</button>
+      <button id="f-cancel">やめる</button>
+    </div>
+    <div class="btnrow">
+      <button id="f-delete" class="danger hidden">この記録を消す</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 一覧 ============ -->
+<div class="sheet-bg hidden" id="list-bg">
+  <div class="sheet tall" role="dialog" aria-modal="true" aria-labelledby="list-title">
+    <h3 id="list-title">記録した場所</h3>
+    <div id="stats" class="statgrid"></div>
+    <div id="list" class="list"></div>
+    <button class="sheet-close" id="list-close">閉じる</button>
+  </div>
+</div>
+
+<!-- ============ 設定 ============ -->
+<div class="sheet-bg hidden" id="menu-bg">
+  <div class="sheet tall" role="dialog" aria-modal="true" aria-labelledby="menu-title">
+    <h3 id="menu-title">設定</h3>
+
+    <label class="field"><span>未踏エリアのマスの細かさ</span>
+      <select id="s-grid"></select></label>
+    <p class="hint" id="grid-hint"></p>
+
+    <label class="field checkline">
+      <input type="checkbox" id="s-autofog" checked>
+      <span>訪問した場所の周り1マスも踏破ずみにする</span>
+    </label>
+
+    <h4>データ</h4>
+    <p class="hint">
+      記録も写真も<strong>この端末の中だけ</strong>にあります。どこにも送信していません。
+      裏を返すと、ブラウザのデータを消すと記録も消えます。<strong>ときどき書き出して保管してください。</strong>
+    </p>
+    <div class="btnrow">
+      <button id="s-export">書き出す(写真つき)</button>
+      <button id="s-export-light">書き出す(写真なし)</button>
+    </div>
+    <label class="addphoto">
+      ファイルを読み込む
+      <input type="file" id="s-import" accept="application/json,.json" hidden>
+    </label>
+    <p class="hint" id="usage-hint"></p>
+
+    <div class="btnrow">
+      <button id="s-clear" class="danger">記録をすべて消す</button>
+    </div>
+
+    <button class="sheet-close" id="menu-close">閉じる</button>
+  </div>
+</div>
+
+<!-- 写真の拡大 -->
+<div class="viewer hidden" id="viewer">
+  <img id="viewer-img" alt="">
+  <button id="viewer-close" title="閉じる">×</button>
+</div>
+
+<script src="./geo.js"></script>
+<script src="./exif.js"></script>
+<script src="./store.js"></script>
+<script src="./minimap.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>
