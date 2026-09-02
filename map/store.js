@@ -45,12 +45,25 @@
 
   const uid = () => 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
+  /**
+   * 古い記録には公開範囲が入っていない。読み書きのたびに補う。
+   * 既定は 'private'。以前の記録はすべて端末内にしか無かったものなので、
+   * 黙って外に出さないため、ここは必ず private から始める。
+   */
+  function normalize(v) {
+    if (!v) return v;
+    if (v.visibility !== 'friends' && v.visibility !== 'public') v.visibility = 'private';
+    if (!Array.isArray(v.photos)) v.photos = [];
+    if (v.visibility === 'private') v.remoteId = null;
+    return v;
+  }
+
   /* ---------- 訪問記録 ---------- */
 
-  const putVisit   = v  => tx('visits', 'readwrite', s => s.put(v)).then(() => v);
-  const getVisit   = id => tx('visits', 'readonly',  s => s.get(id));
+  const putVisit   = v  => tx('visits', 'readwrite', s => s.put(normalize(v))).then(() => v);
+  const getVisit   = id => tx('visits', 'readonly',  s => s.get(id)).then(normalize);
   const allVisits  = () => tx('visits', 'readonly',  s => s.getAll())
-                             .then(list => (list || []).sort((a, b) => b.ts - a.ts));
+                             .then(list => (list || []).map(normalize).sort((a, b) => b.ts - a.ts));
   const delVisit   = id => tx('visits', 'readwrite', s => s.delete(id));
 
   /* ---------- 写真 ---------- */
@@ -133,6 +146,10 @@
         title: String(v.title || ''),
         comment: String(v.comment || ''),
         photos: kept,
+        // 取り込んだファイルの中身がどうであれ、外に出す指定は引き継がない。
+        // 読み込んだ瞬間に他人へ公開されてしまう事故を避ける。
+        visibility: 'private',
+        remoteId: null,
       });
       n++;
     }
@@ -151,7 +168,7 @@
   }
 
   global.Store = {
-    uid, putVisit, getVisit, allVisits, delVisit,
+    uid, normalize, putVisit, getVisit, allVisits, delVisit,
     putPhoto, getPhoto, delPhoto, clearAll,
     exportAll, importAll, usage, blobToDataURL, dataURLToBlob,
   };

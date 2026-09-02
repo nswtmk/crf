@@ -201,14 +201,28 @@
     _bindPointer() {
       const pts = new Map();
       let last = null, pinch = null, moved = 0, downAt = 0;
+      let captured = false, onMarker = false;
+
+      // ポインタを押した瞬間に捕まえると、その後の pointerup と click まで
+      // 地図が持っていってしまい、ピンをタップしても反応しなくなる。
+      // 動き出してから捕まえることで、タップは本来の相手に届き、
+      // ドラッグは指が地図の外に出ても追い続けられる。
+      const capture = e => {
+        if (captured) return;
+        try { this.el.setPointerCapture(e.pointerId); } catch (err) { /* 既に外れていれば無視 */ }
+        captured = true;
+      };
 
       const onDown = e => {
-        this.el.setPointerCapture(e.pointerId);
         pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-        if (pts.size === 1) { last = { x: e.clientX, y: e.clientY }; moved = 0; downAt = Date.now(); }
-        else if (pts.size === 2) {
+        if (pts.size === 1) {
+          last = { x: e.clientX, y: e.clientY };
+          moved = 0; downAt = Date.now(); captured = false;
+          onMarker = !!(e.target && e.target.closest && e.target.closest('.mm-markers'));
+        } else if (pts.size === 2) {
           const [a, b] = [...pts.values()];
           pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y), zoom: this.zoom };
+          capture(e);          // ピンチは最初から追い続ける
         }
       };
 
@@ -231,6 +245,7 @@
         const dx = e.clientX - last.x, dy = e.clientY - last.y;
         moved += Math.abs(dx) + Math.abs(dy);
         last = { x: e.clientX, y: e.clientY };
+        if (moved > 8) capture(e);
         this.panBy(-dx, -dy);
       };
 
@@ -238,12 +253,13 @@
         pts.delete(e.pointerId);
         if (pts.size < 2) pinch = null;
         if (pts.size === 0) {
-          // 動かしていなければタップとして扱う
-          if (moved < 8 && Date.now() - downAt < 700) {
+          // 動かしていなければタップとして扱う。
+          // ただしピンの上で始まったものは、ピン自身の click に任せる。
+          if (moved < 8 && !onMarker && Date.now() - downAt < 700) {
             const r = this.el.getBoundingClientRect();
             this.emit('tap', this.unproject(e.clientX - r.left, e.clientY - r.top));
           }
-          last = null;
+          last = null; captured = false; onMarker = false;
           this.emit('moveend');
         } else {
           last = [...pts.values()][0];

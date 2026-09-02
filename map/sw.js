@@ -1,13 +1,14 @@
 /* アプリ本体はキャッシュしてオフラインでも起動できるようにする。
    地図タイルは別扱いで、一度見た範囲だけを上限つきで貯める。
    ファイルを更新したら SHELL の版を上げること。 */
-const SHELL = 'trailmap-shell-v1';
+const SHELL = 'trailmap-shell-v2';
 const TILES = 'trailmap-tiles-v1';
 const TILE_LIMIT = 1200;
 
 const ASSETS = [
   './', './index.html', './style.css',
-  './geo.js', './exif.js', './store.js', './minimap.js', './app.js',
+  './geo.js', './exif.js', './store.js', './minimap.js',
+  './supa.js', './social.js', './social-ui.js', './app.js',
   './manifest.webmanifest', './icon-192.png', './icon-512.png',
 ];
 

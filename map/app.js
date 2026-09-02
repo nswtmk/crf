@@ -14,6 +14,8 @@ const PHOTO_MAX = 1600;          // 保存する写真の最大辺 (端末を圧
 
 let map = null;
 let visits = [];
+let others = [];                 // 他の人の記録 (読むだけ)
+let supa = null, social = null;
 let cells = new Set();           // 踏破ずみのマス "x,y"
 let editing = null;              // 編集中の記録
 let pickMode = false;
@@ -36,6 +38,7 @@ function loadPrefs() {
 /* ---------- 踏破マスの計算 ------------------------------------------------ */
 
 function rebuildCells() {
+  // 霧が晴れるのは自分が行った場所だけ。他人の記録では晴らさない。
   cells = new Set();
   for (const v of visits) {
     const c = G.cellOf(v.lat, v.lng, prefs.grid);
@@ -90,12 +93,44 @@ function drawFog(ctx, m) {
 /* ---------- マーカー ------------------------------------------------------ */
 
 function refreshMarkers() {
-  map.setMarkers(visits.map(v => {
+  const mine = visits.map(v => {
     const d = el('button', 'pin' + ((v.photos || []).length ? ' haspin' : ''));
     d.title = v.title || '記録';
+    if (v.visibility !== 'private') d.classList.add('shared');
     d.addEventListener('click', ev => { ev.stopPropagation(); openEdit(v); });
     return { lat: v.lat, lng: v.lng, el: d };
-  }));
+  });
+  // 他の人の記録は、自分のものと見分けがつく形にする
+  const theirs = others.map(o => {
+    const d = el('button', 'pin other');
+    d.title = (o.author.nickname || '') + ': ' + (o.title || '記録');
+    const face = el('span', 'otherface');
+    face.textContent = o.author.icon_emoji || '👤';
+    face.style.background = o.author.icon_color || '#666';
+    d.append(face);
+    d.addEventListener('click', ev => { ev.stopPropagation(); openOther(o); });
+    return { lat: o.lat, lng: o.lng, el: d };
+  });
+  map.setMarkers(mine.concat(theirs));
+}
+
+/** 他の人の記録を読むだけの表示 */
+function openOther(o) {
+  window.SocialUI.setCurrentOther(o);
+  $('#o-icon').textContent = o.author.icon_emoji || '👤';
+  $('#o-icon').style.background = o.author.icon_color || '#666';
+  $('#o-author').textContent = o.author.nickname || '(不明)';
+  $('#o-when').textContent = new Date(o.ts).toLocaleDateString('ja-JP') +
+    ' · ' + (o.visibility === 'public' ? '全体に公開' : '友達だけ');
+  $('#other-title').textContent = o.title || '(名前なし)';
+  $('#o-comment').textContent = o.comment || '';
+  $('#o-comment').classList.toggle('hidden', !o.comment);
+  $('#o-coords').textContent = o.lat.toFixed(5) + ', ' + o.lng.toFixed(5);
+  $('#o-goto').onclick = () => {
+    hide('#other-bg');
+    map.setView(o.lat, o.lng, Math.max(map.zoom, 15));
+  };
+  show('#other-bg');
 }
 
 /* ---------- 記録の読み込み ------------------------------------------------ */
@@ -107,12 +142,47 @@ async function reload() {
   map.schedule();
 }
 
+/** 他の人の記録を取り直す。何が見えるかはサーバー側が決める。 */
+async function reloadOthers() {
+  if (!social || !supa || !supa.signedIn) {
+    if (others.length) { others = []; refreshMarkers(); map.schedule(); }
+    return;
+  }
+  try {
+    others = await social.fetchOthers(300);
+  } catch (e) {
+    others = [];
+  }
+  refreshMarkers();
+  map.schedule();
+}
+
+/** 端末の記録をまとめてサーバーへ反映する */
+async function syncAll() {
+  if (!social || !supa || !supa.signedIn) { toast('先にログインしてください'); return; }
+  const targets = visits.filter(v => v.visibility !== 'private' || v.remoteId);
+  if (!targets.length) { toast('共有する設定の記録がありません'); return; }
+  toast('同期しています…');
+  let failed = 0;
+  const map2 = await social.pushAll(targets, (done, total, err) => { if (err) failed++; });
+  for (const v of targets) {
+    if (Object.prototype.hasOwnProperty.call(map2, v.id)) {
+      v.remoteId = map2[v.id];
+      await Store.putVisit(v);
+    }
+  }
+  await reload();
+  await reloadOthers();
+  toast(failed ? (targets.length - failed) + '件を同期 (' + failed + '件は失敗)' : targets.length + '件を同期しました');
+}
+
 /* ---------- 編集シート ---------------------------------------------------- */
 
 function openEdit(visit, at) {
   editing = visit
     ? Object.assign({}, visit, { photos: (visit.photos || []).slice() })
-    : { id: Store.uid(), lat: at.lat, lng: at.lng, ts: Date.now(), title: '', comment: '', photos: [] };
+    : { id: Store.uid(), lat: at.lat, lng: at.lng, ts: Date.now(), title: '', comment: '',
+        photos: [], visibility: window.Visibility.DEFAULT_VIS, remoteId: null };
 
   $('#edit-title').textContent = visit ? '記録を編集' : 'ここを記録';
   $('#edit-coords').textContent = editing.lat.toFixed(5) + ', ' + editing.lng.toFixed(5);
@@ -121,8 +191,42 @@ function openEdit(visit, at) {
   $('#f-date').value = toLocalInput(editing.ts);
   $('#f-delete').classList.toggle('hidden', !visit);
   $('#exif-hint').textContent = '';
+  renderVisibility();
   renderPhotoStrip();
   show('#edit-bg');
+}
+
+/** 公開範囲の3択。既定は「自分だけ」で、それ以外を選ぶと何が起きるかを明記する。 */
+function renderVisibility() {
+  const V = window.Visibility;
+  const box = $('#f-vis');
+  box.textContent = '';
+  for (const key of V.VIS_ORDER) {
+    const v = V.VIS[key];
+    const b = el('button', 'visbtn' + (editing.visibility === key ? ' on' : ''));
+    b.type = 'button';
+    b.innerHTML = '';
+    const i = el('span', 'visicon'); i.textContent = v.icon;
+    const l = el('span'); l.textContent = v.label;
+    b.append(i, l);
+    b.addEventListener('click', () => { editing.visibility = key; renderVisibility(); });
+    box.append(b);
+  }
+  const hint = $('#vis-hint');
+  const signedIn = supa && supa.signedIn;
+  if (editing.visibility === 'private') {
+    hint.textContent = 'この記録は端末の中だけに残り、サーバーには送りません。';
+    hint.classList.remove('err');
+  } else if (!signedIn) {
+    hint.textContent = 'ログインするまでは共有されません。端末の中だけに残ります。';
+    hint.classList.add('err');
+  } else if (editing.visibility === 'friends') {
+    hint.textContent = 'おたがいにフォローしている相手だけが見られます。';
+    hint.classList.remove('err');
+  } else {
+    hint.textContent = '誰でも見られます。自宅や職場が分かる場所は避けてください。';
+    hint.classList.add('err');
+  }
 }
 
 function toLocalInput(ts) {
@@ -219,10 +323,22 @@ async function saveEdit() {
   const d = $('#f-date').value;
   if (d) { const t = new Date(d).getTime(); if (isFinite(t)) editing.ts = t; }
   await Store.putVisit(editing);
+  const saved = editing;
   hide('#edit-bg');
   editing = null;
   await reload();
   toast('保存しました');
+
+  // 共有する設定なら、この1件だけをサーバーへ反映する
+  if (social && supa && supa.signedIn) {
+    try {
+      const r = await social.pushVisit(saved);
+      if (r && r.remoteId) { saved.remoteId = r.remoteId; await Store.putVisit(saved); }
+      if (r && r.removed)  { saved.remoteId = null;       await Store.putVisit(saved); }
+    } catch (e) {
+      toast('共有できませんでした: ' + e.message);
+    }
+  }
 }
 
 /* ---------- 一覧 ---------------------------------------------------------- */
@@ -373,6 +489,20 @@ function toast(msg) {
 
 function openViewer(url) { $('#viewer-img').src = url; show('#viewer'); }
 
+/** 記録シートが開いている間にログイン状態が変わったら、注意書きを出し直す */
+function renderVisibilityHintIfOpen() {
+  if (editing && !$('#edit-bg').classList.contains('hidden')) renderVisibility();
+}
+
+function updateSyncHint() {
+  const n = visits.filter(v => v.visibility !== 'private').length;
+  const priv = visits.length - n;
+  $('#sync-hint').textContent = supa && supa.signedIn
+    ? '共有する設定の記録 ' + n + '件 / 端末だけの記録 ' + priv + '件。' +
+      '「自分だけ」の記録はサーバーに送りません。'
+    : '';
+}
+
 function setPickMode(on) {
   pickMode = on;
   $('#crosshair').classList.toggle('hidden', !on);
@@ -384,6 +514,11 @@ function setPickMode(on) {
 
 async function boot() {
   loadPrefs();
+
+  // 接続先が未設定でも、アプリはこれまでどおり端末内だけで動く
+  const conf = window.SupaConfig.load();
+  supa = new window.Supa(conf ? conf.url : '', conf ? conf.anonKey : '');
+  social = new window.Social(supa);
 
   map = new MiniMap($('#map'), {
     center: { lat: prefs.lat, lng: prefs.lng },
@@ -453,6 +588,11 @@ async function boot() {
   $('#f-cancel').addEventListener('click', () => { hide('#edit-bg'); editing = null; });
   $('#f-delete').addEventListener('click', async () => {
     if (!editing) return;
+    if (!confirm('この記録を消します。元に戻せません。よろしいですか?')) return;
+    if (editing.remoteId && social && supa && supa.signedIn) {
+      try { await social.deleteRemote(editing); }
+      catch (e) { if (!confirm('サーバー側を消せませんでした (' + e.message + ')。端末からだけ消しますか?')) return; }
+    }
     for (const pid of (editing.photos || [])) await Store.delPhoto(pid);
     await Store.delVisit(editing.id);
     hide('#edit-bg'); editing = null;
@@ -504,7 +644,32 @@ async function boot() {
     if (pickMode) setPickMode(false);
   });
 
+  window.SocialUI.init({
+    supa, social,
+    onChanged: async () => {
+      renderVisibilityHintIfOpen();
+      try { await social.loadBlocks(); } catch (e) { /* 圏外なら後で読み直す */ }
+      await reloadOthers();
+      updateSyncHint();
+    },
+  });
+  $('#a-sync').addEventListener('click', syncAll);
+
   await reload();
+
+  // ログイン済みなら、自分の情報と他の人の記録を裏で読み込む
+  if (supa.signedIn) {
+    (async () => {
+      try {
+        await social.loadMe();
+        await social.loadFollows();
+        await social.loadBlocks();
+        window.SocialUI.refreshAvatar();
+        await reloadOthers();
+        updateSyncHint();
+      } catch (e) { /* 圏外でも端末内の記録は使える */ }
+    })();
+  }
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));

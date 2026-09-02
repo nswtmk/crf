@@ -1,0 +1,7 @@
+{
+  "appId": "jp.nswtmk.trailmap",
+  "appName": "足あと地図",
+  "webDir": ".",
+  "server": { "androidScheme": "https" },
+  "ios": { "contentInset": "always", "limitsNavigationsToAppBoundDomains": false }
+}

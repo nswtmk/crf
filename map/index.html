@@ -29,6 +29,12 @@
   <span class="blab">マス踏破</span>
 </button>
 
+<!-- 右上: 自分のアイコン / ログイン -->
+<button class="me" id="me" title="アカウントと友達">
+  <span class="meicon" id="me-icon">👤</span>
+  <span class="mename" id="me-name">ログイン</span>
+</button>
+
 <!-- 右側の縦ボタン -->
 <div class="sidebtns">
   <button id="b-locate" title="現在地へ">📍</button>
@@ -65,6 +71,12 @@
 
     <label class="field"><span>日付</span>
       <input type="datetime-local" id="f-date"></label>
+
+    <div class="field">
+      <span>公開範囲</span>
+      <div class="visrow" id="f-vis"></div>
+      <p class="hint" id="vis-hint"></p>
+    </div>
 
     <div class="field">
       <span>写真</span>
@@ -129,7 +141,149 @@
       <button id="s-clear" class="danger">記録をすべて消す</button>
     </div>
 
+    <h4>問い合わせ</h4>
+    <p class="hint">
+      通報や不具合の連絡先: <a id="contact-mail" href="#">(未設定)</a><br>
+      通報をいただいた内容は24時間以内に確認し、問題があればその投稿を削除します。
+    </p>
+
     <button class="sheet-close" id="menu-close">閉じる</button>
+  </div>
+</div>
+
+<!-- ============ アカウント ============ -->
+<div class="sheet-bg hidden" id="account-bg">
+  <div class="sheet tall" role="dialog" aria-modal="true" aria-labelledby="account-title">
+    <h3 id="account-title">アカウント</h3>
+
+    <!-- 接続先がまだ無いとき -->
+    <div id="a-setup" class="hidden">
+      <p class="hint">
+        フォローや共有を使うには、記録を預ける先(Supabase)の設定が要ります。
+        <strong>設定するまで、記録はこれまでどおり端末の中だけにあります。</strong>
+        手順は <code>map/SETUP.md</code> に書いてあります。
+      </p>
+      <label class="field"><span>プロジェクトURL</span>
+        <input type="url" id="a-url" placeholder="https://xxxx.supabase.co" autocomplete="off"></label>
+      <label class="field"><span>anon キー</span>
+        <input type="text" id="a-key" placeholder="eyJhbGciOi..." autocomplete="off"></label>
+      <div class="btnrow"><button id="a-save-conf" class="primary">つなぐ</button></div>
+    </div>
+
+    <!-- 未ログイン -->
+    <div id="a-auth" class="hidden">
+      <label class="field"><span>メールアドレス</span>
+        <input type="email" id="a-email" autocomplete="username" placeholder="you@example.com"></label>
+      <label class="field"><span>パスワード</span>
+        <input type="password" id="a-pass" autocomplete="current-password" placeholder="6文字以上"></label>
+      <div class="btnrow">
+        <button id="a-signin" class="primary">ログイン</button>
+        <button id="a-signup">新規登録</button>
+      </div>
+      <p class="hint" id="a-msg"></p>
+      <div class="btnrow"><button id="a-forget" class="ghost">接続先の設定を消す</button></div>
+    </div>
+
+    <!-- ログイン済み -->
+    <div id="a-me" class="hidden">
+      <div class="mecard">
+        <span class="bigicon" id="p-preview">🐾</span>
+        <div>
+          <div class="mecard-name" id="p-name">-</div>
+          <div class="mecard-mail" id="p-mail"></div>
+        </div>
+      </div>
+
+      <label class="field"><span>ニックネーム</span>
+        <input type="text" id="p-nick" maxlength="20" placeholder="ふりがなでも記号なしでも"></label>
+
+      <div class="field"><span>アイコン</span>
+        <div class="emojigrid" id="p-emoji"></div>
+      </div>
+      <div class="field"><span>背景の色</span>
+        <div class="colorgrid" id="p-color"></div>
+      </div>
+
+      <div class="btnrow"><button id="p-save" class="primary">プロフィールを保存</button></div>
+      <p class="hint" id="p-msg"></p>
+
+      <h4>共有</h4>
+      <p class="hint" id="sync-hint"></p>
+      <div class="btnrow">
+        <button id="a-sync">いま同期する</button>
+        <button id="a-signout" class="danger">ログアウト</button>
+      </div>
+    </div>
+
+    <button class="sheet-close" id="account-close">閉じる</button>
+  </div>
+</div>
+
+<!-- ============ 友達 ============ -->
+<div class="sheet-bg hidden" id="friends-bg">
+  <div class="sheet tall" role="dialog" aria-modal="true" aria-labelledby="friends-title">
+    <h3 id="friends-title">友達</h3>
+    <p class="hint">
+      <strong>おたがいにフォローすると「友達」になります。</strong>
+      「友達だけ」に設定した記録は、友達にだけ見えます。
+    </p>
+    <label class="field"><span>ニックネームで探す</span>
+      <input type="search" id="fr-q" placeholder="名前の一部でも探せます" autocomplete="off"></label>
+    <div id="fr-results" class="people"></div>
+
+    <div class="tabrow">
+      <button class="tab on" data-tab="friends">友達</button>
+      <button class="tab" data-tab="following">フォロー中</button>
+      <button class="tab" data-tab="followers">フォロワー</button>
+      <button class="tab" data-tab="blocked">ブロック</button>
+    </div>
+    <div id="fr-list" class="people"></div>
+    <button class="sheet-close" id="friends-close">閉じる</button>
+  </div>
+</div>
+
+<!-- ============ 他の人の記録 ============ -->
+<div class="sheet-bg hidden" id="other-bg">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="other-title">
+    <div class="otherhead">
+      <span class="bigicon" id="o-icon">👤</span>
+      <div>
+        <div class="mecard-name" id="o-author">-</div>
+        <div class="mecard-mail" id="o-when"></div>
+      </div>
+    </div>
+    <h3 id="other-title">-</h3>
+    <p id="o-comment" class="othercomment"></p>
+    <p class="coords" id="o-coords"></p>
+    <div class="btnrow">
+      <button id="o-goto">この場所へ</button>
+      <button id="o-close" class="primary">閉じる</button>
+    </div>
+    <div class="btnrow">
+      <button id="o-report" class="ghost">通報する</button>
+      <button id="o-block" class="ghost">この人をブロック</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 通報 ============ -->
+<div class="sheet-bg hidden" id="report-bg">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="report-title">
+    <h3 id="report-title">通報する</h3>
+    <p class="hint">
+      内容を確認し、問題があれば削除して投稿者の利用を止めます。
+      通報したことは相手に知らされません。
+    </p>
+    <div class="field"><span>理由</span>
+      <div id="rp-reasons" class="reasons"></div>
+    </div>
+    <label class="field"><span>補足 (任意)</span>
+      <textarea id="rp-note" rows="3" maxlength="1000" placeholder="どこが問題かを書いてもらえると助かります"></textarea></label>
+    <div class="btnrow">
+      <button id="rp-send" class="danger">通報する</button>
+      <button id="rp-cancel">やめる</button>
+    </div>
+    <p class="hint" id="rp-msg"></p>
   </div>
 </div>
 
@@ -142,7 +296,10 @@
 <script src="./geo.js"></script>
 <script src="./exif.js"></script>
 <script src="./store.js"></script>
+<script src="./supa.js"></script>
+<script src="./social.js"></script>
 <script src="./minimap.js"></script>
+<script src="./social-ui.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>

@@ -1,0 +1,217 @@
+/* =========================================================================
+   test-social.js — 公開範囲とフォローの検証 (ブラウザ不要)
+   mock-supabase.js を立て、supa.js / social.js を実際に通信させて確かめる。
+   実行: node test-social.js
+   ========================================================================= */
+'use strict';
+const { createMock } = require('./mock-supabase.js');
+
+// ブラウザの部品を最小限だけ用意する
+const store = {};
+globalThis.localStorage = {
+  getItem: k => (k in store ? store[k] : null),
+  setItem: (k, v) => { store[k] = String(v); },
+  removeItem: k => { delete store[k]; },
+};
+globalThis.window = globalThis;
+require('./supa.js');
+require('./social.js');
+
+let pass = 0, fail = 0;
+const ok = (n, c, e = '') => { c ? pass++ : fail++; console.log((c ? '  ok  ' : '  FAIL') + '  ' + n + (e ? '  ' + e : '')); };
+const head = t => console.log('\n=== ' + t + ' ===');
+
+/** 利用者ごとに独立したセッションを持たせる (localStorage を分ける) */
+function newClient(url) {
+  const own = {};
+  const s = new globalThis.Supa(url, 'anon-test-key');
+  s._load = () => {};
+  s._save = () => { own.session = s.session; };
+  return { supa: s, social: new globalThis.Social(s) };
+}
+
+(async () => {
+  const { server, db } = createMock();
+  await new Promise(r => server.listen(0, r));
+  const url = 'http://localhost:' + server.address().port;
+
+  const A = newClient(url);   // あなた
+  const B = newClient(url);   // 友達になる人
+  const C = newClient(url);   // 他人
+
+  head('サインアップとプロフィール');
+  await A.supa.signUp('a@example.com', 'password1');
+  await B.supa.signUp('b@example.com', 'password1');
+  await C.supa.signUp('c@example.com', 'password1');
+  ok('3人が登録できた', A.supa.signedIn && B.supa.signedIn && C.supa.signedIn);
+
+  await A.social.loadMe();
+  ok('登録と同時にプロフィールの器ができる', !!A.social.me, JSON.stringify(A.social.me));
+
+  await A.social.saveProfile('あるく人', '🚶', '#1b6b4a');
+  await B.social.saveProfile('ともだち', '🐱', '#2a7fd4');
+  await C.social.saveProfile('たにん', '🦊', '#d97706');
+  ok('ニックネームとアイコンを保存できる',
+     A.social.me.nickname === 'あるく人' && A.social.me.icon_emoji === '🚶');
+
+  let dup = null;
+  try { await B.social.saveProfile('あるく人', '🐱', '#2a7fd4'); } catch (e) { dup = e.message; }
+  ok('同じニックネームは断られる', !!dup && dup.includes('使われています'), dup || '(通ってしまった)');
+
+  let badName = null;
+  try { await A.social.saveProfile('', '🚶', '#1b6b4a'); } catch (e) { badName = e.message; }
+  ok('空のニックネームは断られる', !!badName);
+
+  head('「自分だけ」の記録はサーバーに送られない');
+  const priv = { id: 'v1', lat: 35.68, lng: 139.76, ts: Date.now(), title: '自宅', comment: '', visibility: 'private' };
+  const r0 = await A.social.pushVisit(priv);
+  ok('送信そのものが起きない', r0 === null);
+  ok('サーバーに1件も無い', db.visits.length === 0, db.visits.length + '件');
+
+  head('「友達だけ」は相互フォローの相手にだけ見える');
+  const fr = { id: 'v2', lat: 35.66, lng: 139.74, ts: Date.now(), title: '友達に見せる場所', comment: 'ここ良かった', visibility: 'friends' };
+  const r1 = await A.social.pushVisit(fr);
+  fr.remoteId = r1.remoteId;
+  ok('サーバーに上がった', !!r1.remoteId && db.visits.length === 1);
+
+  await B.social.loadFollows(); await C.social.loadFollows();
+  ok('片方向フォローの前: B には見えない', (await B.social.fetchOthers()).length === 0);
+
+  await B.social.follow(A.supa.userId);
+  await B.social.loadFollows();
+  ok('B→A だけフォローしても、まだ見えない', (await B.social.fetchOthers()).length === 0,
+     '片方向で見えたら設計ミス');
+
+  await A.social.follow(B.supa.userId);
+  await A.social.loadFollows(); await B.social.loadFollows();
+  ok('おたがいにフォローすると友達になる', B.social.isFriend(A.supa.userId) && A.social.isFriend(B.supa.userId));
+
+  const seenByB = await B.social.fetchOthers();
+  ok('友達には見える', seenByB.length === 1 && seenByB[0].title === '友達に見せる場所',
+     JSON.stringify(seenByB.map(x => x.title)));
+  ok('投稿者の名前とアイコンが付く',
+     seenByB[0].author.nickname === 'あるく人' && seenByB[0].author.icon_emoji === '🚶');
+
+  await C.social.loadFollows();
+  ok('友達でない C には見えない', (await C.social.fetchOthers()).length === 0);
+
+  head('「全体に公開」は誰でも見える');
+  const pub = { id: 'v3', lat: 35.70, lng: 139.70, ts: Date.now(), title: 'みんなに見せる場所', comment: '', visibility: 'public' };
+  const r2 = await A.social.pushVisit(pub);
+  pub.remoteId = r2.remoteId;
+  const seenByC = await C.social.fetchOthers();
+  ok('友達でなくても見える', seenByC.length === 1 && seenByC[0].title === 'みんなに見せる場所',
+     JSON.stringify(seenByC.map(x => x.title)));
+  ok('友達には両方見える', (await B.social.fetchOthers()).length === 2);
+
+  head('公開範囲を戻すとサーバーから消える');
+  fr.visibility = 'private';
+  const r3 = await A.social.pushVisit(fr);
+  ok('消したと報告される', r3 && r3.removed === true, JSON.stringify(r3));
+  ok('サーバーから消えている', db.visits.length === 1 && db.visits[0].visibility === 'public',
+     JSON.stringify(db.visits.map(v => v.visibility)));
+  ok('友達からも見えなくなる', (await B.social.fetchOthers()).length === 1);
+
+  head('削除');
+  await A.social.deleteRemote(pub);
+  ok('サーバーから消える', db.visits.length === 0);
+  ok('誰からも見えない', (await C.social.fetchOthers()).length === 0);
+
+  head('他人の記録は書き換えられない');
+  const pub2 = { id: 'v4', lat: 35.5, lng: 139.5, ts: Date.now(), title: 'Aの記録', comment: '', visibility: 'public' };
+  const r4 = await A.social.pushVisit(pub2);
+  let denied = null;
+  try {
+    await C.supa.remove('visits', 'id=eq.' + r4.remoteId + '&user_id=eq.' + A.supa.userId);
+  } catch (e) { denied = e.message; }
+  ok('他人が消そうとすると拒まれる', !!denied && db.visits.length === 1, denied || '(消せてしまった)');
+
+  let denied2 = null;
+  try { await C.supa.update('visits', 'id=eq.' + r4.remoteId, { title: '乗っ取り' }); }
+  catch (e) { denied2 = e.message; }
+  ok('他人が書き換えようとすると拒まれる',
+     !!denied2 && db.visits[0].title === 'Aの記録', denied2 || '(書き換えられた)');
+
+  let denied3 = null;
+  try { await C.supa.insert('visits', { user_id: A.supa.userId, lat: 0, lng: 0, visited_at: new Date().toISOString(), visibility: 'public' }); }
+  catch (e) { denied3 = e.message; }
+  ok('他人になりすまして投稿できない', !!denied3, denied3 || '(投稿できてしまった)');
+
+  head('フォローの解除');
+  await A.social.unfollow(B.supa.userId);
+  await A.social.loadFollows(); await B.social.loadFollows();
+  ok('友達でなくなる', !B.social.isFriend(A.supa.userId));
+
+  const fr2 = { id: 'v5', lat: 35.4, lng: 139.4, ts: Date.now(), title: '友達限定2', comment: '', visibility: 'friends' };
+  await A.social.pushVisit(fr2);
+  const seen = await B.social.fetchOthers();
+  ok('解除後は友達限定が見えない', !seen.some(x => x.title === '友達限定2'),
+     JSON.stringify(seen.map(x => x.title)));
+
+  head('自分自身はフォローできない');
+  let self = null;
+  try { await A.social.follow(A.supa.userId); } catch (e) { self = e.message; }
+  ok('断られる', !!self, self || '(できてしまった)');
+
+  head('人を探す');
+  const found = await A.social.searchPeople('ともだち');
+  ok('ニックネームで見つかる', found.length === 1 && found[0].nickname === 'ともだち');
+  ok('自分は結果に出ない', !(await A.social.searchPeople('あるく')).some(p => p.id === A.supa.userId));
+
+  head('まとめて同期');
+  const many = [
+    { id: 'm1', lat: 1, lng: 1, ts: Date.now(), title: 'p1', comment: '', visibility: 'private' },
+    { id: 'm2', lat: 2, lng: 2, ts: Date.now(), title: 'f1', comment: '', visibility: 'friends' },
+    { id: 'm3', lat: 3, lng: 3, ts: Date.now(), title: 'u1', comment: '', visibility: 'public' },
+  ];
+  const before = db.visits.length;
+  const idmap = await A.social.pushAll(many);
+  ok('公開する2件だけ上がる', db.visits.length === before + 2, (db.visits.length - before) + '件');
+  ok('private は対応表に載らない', !idmap.m1 && !!idmap.m2 && !!idmap.m3, JSON.stringify(idmap));
+  ok('2回目でも増えない (同じ記録は上書き)',
+     (await A.social.pushAll(many), db.visits.length) === before + 2, db.visits.length + '件');
+
+  head('ブロック');
+  await A.social.loadBlocks(); await C.social.loadBlocks();
+  const openPub = { id: 'v9', lat: 36, lng: 140, ts: Date.now(), title: 'Cに見せる', comment: '', visibility: 'public' };
+  await A.social.pushVisit(openPub);
+  ok('ブロック前は見える', (await C.social.fetchOthers()).some(x => x.title === 'Cに見せる'));
+
+  await C.social.block(A.supa.userId);
+  await C.social.loadBlocks();
+  ok('ブロックした側からは見えない', !(await C.social.fetchOthers()).some(x => x.title === 'Cに見せる'),
+     JSON.stringify((await C.social.fetchOthers()).map(x => x.title)));
+
+  await A.social.loadBlocks();
+  ok('ブロックされた側からも相手が見えない', !(await A.social.fetchOthers()).some(x => x.userId === C.supa.userId));
+
+  ok('ブロック一覧に入る', C.social.isBlocked(A.supa.userId));
+  ok('ブロックは相手に知られない', (await A.supa.select('blocks', 'select=blocker,blocked')).length === 0,
+     '相手のブロック一覧が読めてはいけない');
+
+  await C.social.unblock(A.supa.userId);
+  await C.social.loadBlocks();
+  ok('解除すると戻る', (await C.social.fetchOthers()).some(x => x.title === 'Cに見せる'));
+
+  let selfBlock = null;
+  try { await C.social.block(C.supa.userId); } catch (e) { selfBlock = e.message; }
+  ok('自分はブロックできない', !!selfBlock, selfBlock || '(できてしまった)');
+
+  head('通報');
+  const seenNow = await C.social.fetchOthers();
+  const target = seenNow.find(x => x.title === 'Cに見せる');
+  await C.social.report(target, 'offensive', 'テストの通報');
+  ok('通報が記録される', db.reports.length === 1 && db.reports[0].reason === 'offensive',
+     JSON.stringify(db.reports.map(r => r.reason)));
+  ok('通報者が記録される', db.reports[0].reporter === C.supa.userId);
+  ok('自分の通報だけ読める', (await C.supa.select('reports', 'select=id')).length === 1 &&
+     (await A.supa.select('reports', 'select=id')).length === 0);
+
+  let badReason = null;
+  try { await C.social.report(target, 'nonsense', ''); } catch (e) { badReason = e.message; }
+  ok('でたらめな理由は拒まれる', !!badReason, badReason || '(通ってしまった)');
+
+  server.close();
+  console.log(`\n=== 結果: ${pass} 件成功 / ${fail} 件失敗 ===`);
+  process.exit(fail ? 1 : 0);
+})().catch(e => { console.error('\n落ちました:', e); process.exit(1); });

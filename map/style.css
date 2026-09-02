@@ -1,13 +1,13 @@
 :root{
   --bg:#f2f4f7; --panel:#fff; --ink:#16202e; --muted:#5d6b80;
   --line:#dfe4ec; --brand:#1b6b4a; --brand2:#2a9d6e; --brand-soft:#e6f4ee;
-  --bad:#c2354a; --good:#12855c; --radius:14px;
+  --bad:#c2354a; --good:#12855c; --bad-bg:#fdecef; --radius:14px;
 }
 @media (prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
     --bg:#0f1420; --panel:#19202e; --ink:#e9eef7; --muted:#94a2ba;
     --line:#2a3244; --brand:#3fbf8b; --brand2:#59d3a2; --brand-soft:#17352a;
-    --bad:#ff7b93; --good:#4ad9a0;
+    --bad:#ff7b93; --good:#4ad9a0; --bad-bg:#3a1d25;
   }
 }
 *{box-sizing:border-box}
@@ -217,3 +217,103 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--brand);outline-o
   transition:opacity .18s,transform .18s;max-width:90vw;text-align:center;
 }
 .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ==================== 自分のアイコン (右上) ==================== */
+.me{
+  position:fixed;top:calc(10px + env(safe-area-inset-top));right:10px;z-index:9;
+  display:flex;align-items:center;gap:7px;max-width:44vw;
+  background:var(--panel);border:1px solid var(--line);border-radius:999px;
+  padding:5px 13px 5px 6px;box-shadow:0 2px 10px rgba(0,0,0,.16);
+  font:inherit;font-size:.78rem;font-weight:700;color:var(--ink);cursor:pointer;
+}
+.me.on{color:#fff;border-color:transparent}
+.meicon{
+  width:28px;height:28px;flex:none;border-radius:50%;display:grid;place-items:center;
+  background:var(--bg);font-size:.95rem;
+}
+.me.on .meicon{background:rgba(255,255,255,.25)}
+.mename{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* 他の人のピン */
+.pin.other::before{background:#fff;border-color:#fff}
+.otherface{
+  position:absolute;top:1px;left:1px;width:24px;height:24px;border-radius:50%;
+  display:grid;place-items:center;font-size:.8rem;color:#fff;z-index:1;pointer-events:none;
+}
+
+/* 共有中の自分のピンは縁を変える */
+.pin.shared::before{border-color:#ffd97a}
+
+/* ==================== 公開範囲 ==================== */
+.visrow{display:flex;gap:6px}
+.visbtn{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+  padding:10px 4px;border-radius:11px;border:1.5px solid var(--line);
+  background:var(--bg);color:var(--muted);font:inherit;font-size:.72rem;font-weight:700;
+  cursor:pointer;letter-spacing:-.02em;
+}
+.visbtn.on{border-color:var(--brand);background:var(--brand-soft);color:var(--brand)}
+.visicon{font-size:1.15rem;line-height:1}
+.hint.err{color:var(--bad)}
+
+/* ==================== アカウント ==================== */
+.mecard,.otherhead{display:flex;align-items:center;gap:13px;margin-bottom:16px}
+.bigicon{
+  width:56px;height:56px;flex:none;border-radius:50%;display:grid;place-items:center;
+  font-size:1.7rem;background:var(--brand);color:#fff;
+}
+.mecard-name{font-weight:800;font-size:1.05rem;overflow-wrap:anywhere}
+.mecard-mail{font-size:.72rem;color:var(--muted);overflow-wrap:anywhere}
+
+.emojigrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(42px,1fr));gap:5px}
+.emojibtn{
+  aspect-ratio:1;border-radius:9px;border:1.5px solid var(--line);background:var(--bg);
+  font-size:1.1rem;cursor:pointer;padding:0;display:grid;place-items:center;
+}
+.emojibtn.on{border-color:var(--brand);background:var(--brand-soft)}
+.colorgrid{display:flex;gap:8px;flex-wrap:wrap}
+.colorbtn{
+  width:38px;height:38px;border-radius:50%;border:3px solid transparent;cursor:pointer;padding:0;
+  box-shadow:0 0 0 1px var(--line) inset;
+}
+.colorbtn.on{border-color:var(--ink)}
+button.ghost{background:transparent;color:var(--muted);border-color:var(--line)}
+
+/* ==================== 友達 ==================== */
+.tabrow{display:flex;gap:5px;margin:20px 0 10px;border-bottom:1px solid var(--line);padding-bottom:8px}
+.tabrow .tab{
+  flex:1;padding:9px 4px;border-radius:9px;border:1px solid transparent;background:var(--bg);
+  font:inherit;font-size:.76rem;font-weight:700;color:var(--muted);cursor:pointer;
+}
+.tabrow .tab.on{background:var(--brand);color:#fff}
+
+.people{display:flex;flex-direction:column;gap:7px;margin-top:8px}
+#friends-bg .field{margin-top:16px}
+.person{
+  display:flex;align-items:center;gap:11px;padding:9px;
+  background:var(--bg);border:1px solid var(--line);border-radius:12px;
+}
+.peicon{
+  width:40px;height:40px;flex:none;border-radius:50%;display:grid;place-items:center;
+  font-size:1.15rem;color:#fff;
+}
+.pebody{flex:1;min-width:0}
+.pename{font-weight:700;font-size:.9rem;overflow-wrap:anywhere}
+.perel{font-size:.68rem;color:var(--muted)}
+.febtn{
+  flex:none;padding:8px 13px;border-radius:999px;border:1.5px solid var(--brand);
+  background:transparent;color:var(--brand);font:inherit;font-size:.72rem;font-weight:700;cursor:pointer;
+}
+.febtn.on{background:var(--brand);color:#fff}
+.febtn:disabled{opacity:.5}
+
+.othercomment{font-size:.9rem;line-height:1.7;margin:0 0 12px;overflow-wrap:anywhere}
+
+.febtn.blocked{border-color:var(--bad);color:var(--bad);background:transparent}
+.reasons{display:flex;flex-direction:column;gap:6px}
+.reasonbtn{
+  text-align:left;padding:11px 13px;border-radius:10px;border:1.5px solid var(--line);
+  background:var(--bg);color:var(--ink);font:inherit;font-size:.85rem;cursor:pointer;
+}
+.reasonbtn.on{border-color:var(--bad);background:var(--bad-bg);color:var(--bad);font-weight:700}
+.hint a{color:var(--brand)}
