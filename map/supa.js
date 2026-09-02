@@ -154,9 +154,9 @@
 
     /* ---------- 写真の置き場 ---------- */
 
-    async upload(path, blob) {
+    async upload(path, blob, bucket) {
       await this.ensureFresh();
-      const res = await fetch(this.url + '/storage/v1/object/photos/' + path, {
+      const res = await fetch(this.url + '/storage/v1/object/' + (bucket || 'photos') + '/' + path, {
         method: 'POST',
         headers: {
           apikey: this.anonKey,
@@ -168,6 +168,11 @@
       });
       if (!res.ok) throw new Error('写真を送れませんでした (' + res.status + ')');
       return path;
+    }
+
+    /** 公開バケットの中身は、そのまま <img src> に渡せる URL になる */
+    publicUrl(path, bucket) {
+      return this.url + '/storage/v1/object/public/' + (bucket || 'avatars') + '/' + path;
     }
 
     async download(path) {
@@ -182,9 +187,9 @@
       return res.blob();
     }
 
-    async removeFile(path) {
+    async removeFile(path, bucket) {
       await this.ensureFresh();
-      await fetch(this.url + '/storage/v1/object/photos/' + path, {
+      await fetch(this.url + '/storage/v1/object/' + (bucket || 'photos') + '/' + path, {
         method: 'DELETE', headers: this._headers(),
       }).catch(() => {});
     }

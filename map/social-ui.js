@@ -20,24 +20,69 @@
     tab: 'friends',
   };
 
+  /* ---------- アイコンの描画 ----------
+     写真があれば写真、無ければ絵文字と背景色。表示する場所が複数あるので
+     一か所にまとめる。
+     ------------------------------------------------------------------ */
+
+  function paintAvatar(node, profile) {
+    node.textContent = '';
+    node.style.background = '';
+    node.classList.remove('hasphoto');
+    if (!profile) { node.textContent = '👤'; node.style.background = '#888'; return node; }
+    const url = UI.social ? UI.social.avatarUrl(profile) : null;
+    if (url) {
+      const img = el('img');
+      img.src = url; img.alt = ''; img.loading = 'lazy'; img.decoding = 'async';
+      // 読めなかったら絵文字に戻す (消された・圏外など)
+      img.addEventListener('error', () => {
+        node.textContent = profile.icon_emoji || '🐾';
+        node.style.background = profile.icon_color || '#888';
+        node.classList.remove('hasphoto');
+      });
+      node.append(img);
+      node.classList.add('hasphoto');
+    } else {
+      node.textContent = profile.icon_emoji || '🐾';
+      node.style.background = profile.icon_color || '#888';
+    }
+    return node;
+  }
+
+  /** 画像を正方形に切り抜いて小さくする。中央を残す。 */
+  function squareThumb(file, size) {
+    size = size || 256;
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const side = Math.min(img.width, img.height);
+        const sx = (img.width - side) / 2, sy = (img.height - side) / 2;
+        const c = document.createElement('canvas');
+        c.width = c.height = size;
+        c.getContext('2d').drawImage(img, sx, sy, side, side, 0, 0, size, size);
+        URL.revokeObjectURL(url);
+        c.toBlob(b => b ? resolve(b) : reject(new Error('画像を変換できませんでした')), 'image/jpeg', 0.85);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('画像を読めませんでした')); };
+      img.src = url;
+    });
+  }
+
   /* ---------- 画面の状態を合わせる ---------- */
 
   function refreshAvatar() {
     const btn = $('#me'), icon = $('#me-icon'), name = $('#me-name');
-    if (!UI.supa || !UI.supa.configured) {
-      icon.textContent = '👤'; name.textContent = 'ログイン';
-      btn.style.background = ''; btn.classList.remove('on');
-      return;
-    }
-    if (!UI.supa.signedIn) {
-      icon.textContent = '👤'; name.textContent = 'ログイン';
+    if (!UI.supa || !UI.supa.configured || !UI.supa.signedIn) {
+      icon.textContent = '👤'; icon.style.background = ''; icon.classList.remove('hasphoto');
+      name.textContent = 'ログイン';
       btn.style.background = ''; btn.classList.remove('on');
       return;
     }
     const me = UI.social.me;
-    icon.textContent = me ? me.icon_emoji : '🐾';
     name.textContent = me ? me.nickname : '...';
-    btn.style.background = me ? me.icon_color : '';
+    paintAvatar(icon, me);
+    btn.style.background = me ? (me.avatar_path ? 'var(--brand)' : me.icon_color) : '';
     btn.classList.add('on');
   }
 
@@ -62,9 +107,20 @@
   }
 
   function updatePreview() {
+    const me = UI.social.me;
     const p = $('#p-preview');
-    p.textContent = UI.pendingEmoji;
-    p.style.background = UI.pendingColor;
+    if (me && me.avatar_path) {
+      paintAvatar(p, me);
+    } else {
+      p.textContent = UI.pendingEmoji;
+      p.style.background = UI.pendingColor;
+      p.classList.remove('hasphoto');
+    }
+    $('#p-clear-avatar').classList.toggle('hidden', !(me && me.avatar_path));
+    // ラベルだけを書き換える。<label> ごと textContent で潰すと、
+    // 中にあるファイル入力まで消えて写真を選べなくなる。
+    $('#p-pick-label').textContent = (me && me.avatar_path) ? '写真を変える' : '写真を選ぶ';
+    if (me && me.avatar_path) $('#emoji-details').open = false;
   }
 
   function renderPickers() {
@@ -94,9 +150,7 @@
 
   function personRow(p) {
     const row = el('div', 'person');
-    const ic = el('span', 'peicon');
-    ic.textContent = p.icon_emoji || '🐾';
-    ic.style.background = p.icon_color || '#888';
+    const ic = paintAvatar(el('span', 'peicon'), p);
 
     const body = el('div', 'pebody');
     const nm = el('div', 'pename'); nm.textContent = p.nickname;
@@ -170,9 +224,7 @@
       box.append(p); return;
     }
     try {
-      const profs = await UI.supa.select('profiles',
-        'id=in.(' + ids.join(',') + ')&select=id,nickname,icon_emoji,icon_color');
-      const list = await s.decorate(profs || []);
+      const list = await s.decorate(await s.getProfiles(ids));
       for (const p of list) box.append(personRow(p));
     } catch (e) {
       const p = el('p', 'hint err'); p.textContent = '読み込めませんでした: ' + e.message;
@@ -321,6 +373,33 @@
       if (UI.onChanged) UI.onChanged();
     });
 
+    $('#p-file').addEventListener('change', async e => {
+      const f = e.target.files[0];
+      e.target.value = '';
+      if (!f) return;
+      if (!f.type.startsWith('image/')) { msg('#p-msg', '画像を選んでください。', true); return; }
+      msg('#p-msg', '写真を整えています…');
+      try {
+        const blob = await squareThumb(f, 256);
+        msg('#p-msg', '送っています…');
+        await UI.social.setAvatar(blob);
+        msg('#p-msg', 'アイコンを変えました。');
+        updatePreview(); refreshAvatar();
+        if (UI.onChanged) UI.onChanged();
+      } catch (err) { msg('#p-msg', err.message, true); }
+    });
+
+    $('#p-clear-avatar').addEventListener('click', async () => {
+      if (!confirm('写真のアイコンをやめて、絵文字に戻します。')) return;
+      msg('#p-msg', '戻しています…');
+      try {
+        await UI.social.clearAvatar();
+        msg('#p-msg', '絵文字に戻しました。');
+        updatePreview(); refreshAvatar();
+        if (UI.onChanged) UI.onChanged();
+      } catch (err) { msg('#p-msg', err.message, true); }
+    });
+
     $('#p-save').addEventListener('click', async () => {
       msg('#p-msg', '保存しています…');
       try {
@@ -368,7 +447,7 @@
 
   global.SocialUI = {
     init, refreshAvatar, openAccount, openFriends, showAccountSection,
-    openReport, blockAuthor, EMOJI, COLORS,
+    openReport, blockAuthor, EMOJI, COLORS, paintAvatar, squareThumb,
     setCurrentOther: v => { UI.currentOther = v; },
   };
 

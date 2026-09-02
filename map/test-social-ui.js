@@ -6,6 +6,34 @@ const TILE = fs.readFileSync(__dirname + '/tile.png');
 // 実行ごとに真っさらなサーバーを立てる。使い回すと前回の記録が
 // 「他人の投稿」として残り、何を見ているのか分からなくなる。
 let MOCK_URL = '';
+
+/** 600x300 の横長画像 (左=赤 中央=緑 右=青)。中央だけが切り抜かれるかを見るため。 */
+function wideImage() {
+  const zlib = require('zlib');
+  const W = 600, H = 300, rows = [];
+  for (let y = 0; y < H; y++) {
+    const r = [Buffer.from([0])];
+    for (let x = 0; x < W; x++) {
+      r.push(Buffer.from(x < W / 3 ? [220, 60, 60] : x < 2 * W / 3 ? [60, 200, 90] : [60, 90, 220]));
+    }
+    rows.push(Buffer.concat(r));
+  }
+  const crc32 = buf => { let c, crc = 0xffffffff;
+    for (let n = 0; n < buf.length; n++) { c = (crc ^ buf[n]) & 0xff;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      crc = c ^ (crc >>> 8); }
+    return (crc ^ 0xffffffff) >>> 0; };
+  const chunk = (tag, data) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(tag, 'ascii'), data]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(W, 0); ihdr.writeUInt32BE(H, 4); ihdr[8] = 8; ihdr[9] = 2;
+  return Buffer.concat([Buffer.from([0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A]),
+    chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(Buffer.concat(rows))), chunk('IEND', Buffer.alloc(0))]);
+}
 const mail = n => n + '@t.jp';
 const nick = n => n;
 
@@ -39,6 +67,9 @@ async function signUp(pg, email, nick, emoji) {
   await pg.click('#a-signup');
   await pg.waitForTimeout(900);
   await pg.fill('#p-nick', nick);
+  // 絵文字は「写真を使わない場合」の折りたたみの中にある
+  await pg.evaluate(() => { document.querySelector('#emoji-details').open = true; });
+  await pg.waitForTimeout(150);
   await pg.click(`.emojibtn:has-text("${emoji}")`);
   await pg.click('#p-save');
   await pg.waitForTimeout(700);
@@ -80,6 +111,41 @@ async function addVisit(pg, x, y, title, vis) {
   await A.pg.click('#account-close');
   await B.pg.click('#account-close');
   await C.pg.click('#account-close');
+
+  head('2b. 写真のアイコン');
+  await A.pg.evaluate(() => window.SocialUI.openAccount()); await A.pg.waitForTimeout(400);
+  ok('登録直後は絵文字', !(await A.pg.$eval('#p-preview', n => n.classList.contains('hasphoto'))));
+  await A.pg.setInputFiles('#p-file', { name: 'wide.png', mimeType: 'image/png', buffer: wideImage() });
+  await A.pg.waitForTimeout(1500);
+  ok('プロフィール欄が写真になる', await A.pg.$eval('#p-preview', n => n.classList.contains('hasphoto')),
+     await A.pg.textContent('#p-msg'));
+  ok('右上のアイコンも写真になる', await A.pg.$eval('#me-icon', n => n.classList.contains('hasphoto')));
+
+  const shot = await A.pg.$eval('#p-preview img', n => ({ w: n.naturalWidth, h: n.naturalHeight, src: n.src }));
+  ok('正方形に切り抜かれている', shot.w === 256 && shot.h === 256, shot.w + 'x' + shot.h);
+  ok('avatars バケットに置かれる', shot.src.includes('/public/avatars/'), shot.src);
+
+  // 中央を切り抜けているか (600x300 の中央は緑)
+  const mid = await A.pg.evaluate(async src => {
+    const img = new Image(); img.crossOrigin = 'anonymous'; img.src = src;
+    await img.decode();
+    const c = document.createElement('canvas'); c.width = c.height = img.naturalWidth;
+    c.getContext('2d').drawImage(img, 0, 0);
+    const d = c.getContext('2d').getImageData(128, 128, 1, 1).data;
+    return [d[0], d[1], d[2]];
+  }, shot.src);
+  ok('中央を切り抜いている (緑が残る)', mid[1] > mid[0] && mid[1] > mid[2], 'rgb=' + mid.join(','));
+
+  await A.pg.screenshot({ path: 'avatar-profile.png' });
+
+  // 絵文字に戻す → また写真にする
+  A.pg.once('dialog', d => d.accept());
+  await A.pg.click('#p-clear-avatar'); await A.pg.waitForTimeout(1200);
+  ok('絵文字に戻せる', !(await A.pg.$eval('#p-preview', n => n.classList.contains('hasphoto'))));
+  await A.pg.setInputFiles('#p-file', { name: 'wide.png', mimeType: 'image/png', buffer: wideImage() });
+  await A.pg.waitForTimeout(1500);
+  ok('もう一度写真にできる', await A.pg.$eval('#p-preview', n => n.classList.contains('hasphoto')));
+  await A.pg.click('#account-close'); await A.pg.waitForTimeout(300);
 
   head('3. 公開範囲の既定と注意書き');
   await A.pg.mouse.click(160, 350); await A.pg.waitForTimeout(350);
@@ -129,11 +195,22 @@ async function addVisit(pg, x, y, title, vis) {
   const cPins = await C.pg.$$eval('.pin.other', ns => ns.length);
   ok('公開の1件だけ見える', cPins === 1, cPins + '本');
 
+  head('7b. 他人の写真アイコンが見える');
+  await B.pg.reload({ waitUntil: 'networkidle' }); await B.pg.waitForTimeout(1600);
+  ok('地図のピンが写真になる', (await B.pg.$$eval('.pin.other .otherface.hasphoto', ns => ns.length)) > 0,
+     (await B.pg.$$eval('.pin.other .otherface', ns => ns.map(n => n.className))).join(' / '));
+  await B.pg.click('#me'); await B.pg.waitForTimeout(700);
+  ok('友達一覧でも写真になる', (await B.pg.$$eval('#fr-list .peicon.hasphoto', ns => ns.length)) === 1,
+     (await B.pg.$$eval('#fr-list .peicon', ns => ns.map(n => n.className))).join(' / '));
+  await B.pg.screenshot({ path: 'avatar-friends.png' });
+  await B.pg.click('#friends-close'); await B.pg.waitForTimeout(300);
+
   head('8. 他人の記録は読むだけ');
   await B.pg.click('.pin.other'); await B.pg.waitForTimeout(500);
   ok('読み取り画面が開く', await B.pg.isVisible('#other-bg'));
   ok('投稿者名が出る', (await B.pg.textContent('#o-author')) === nick('あるく人'),
      await B.pg.textContent('#o-author'));
+  ok('投稿者のアイコンも写真', await B.pg.$eval('#o-icon', n => n.classList.contains('hasphoto')));
   ok('編集や削除のボタンは無い', !(await B.pg.isVisible('#f-delete')));
   await B.pg.click('#o-close');
 

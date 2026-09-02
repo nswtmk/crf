@@ -30,6 +30,13 @@ function newClient(url) {
   return { supa: s, social: new globalThis.Social(s) };
 }
 
+/** schema.sql の search_profiles が返す列と、モックが返す列を突き合わせる */
+function schemaSearchColumns() {
+  const sql = require('fs').readFileSync(__dirname + '/schema.sql', 'utf8');
+  const m = sql.match(/function public\.search_profiles[\s\S]*?returns table \(([^)]*)\)/);
+  return m ? m[1].split(',').map(s => s.trim().split(/\s+/)[0]).sort() : [];
+}
+
 (async () => {
   const { server, db } = createMock();
   await new Promise(r => server.listen(0, r));
@@ -170,6 +177,71 @@ function newClient(url) {
   ok('private は対応表に載らない', !idmap.m1 && !!idmap.m2 && !!idmap.m3, JSON.stringify(idmap));
   ok('2回目でも増えない (同じ記録は上書き)',
      (await A.social.pushAll(many), db.visits.length) === before + 2, db.visits.length + '件');
+
+  head('モックと schema.sql のずれ');
+  {
+    const want = schemaSearchColumns();
+    await A.social.saveProfile('あるく人', '🚶', '#1b6b4a');
+    const got = Object.keys((await C.social.searchPeople('あるく人'))[0] || {})
+      .filter(k => !['following', 'followsMe', 'friend', 'blocked'].includes(k)).sort();
+    ok('検索が返す列が一致する', JSON.stringify(want) === JSON.stringify(got),
+       'schema=' + want.join(',') + ' / mock=' + got.join(','));
+
+    // 画面ごとに列を書き写すと追加が漏れる。まとめ取りでも同じ列が来ること。
+    const bulk = await C.social.getProfiles([A.supa.userId]);
+    ok('まとめ取りも同じ列', JSON.stringify(Object.keys(bulk[0]).sort()) === JSON.stringify(want),
+       Object.keys(bulk[0]).sort().join(','));
+  }
+
+  head('写真のアイコン');
+  {
+    // 1x1 の JPEG の代わりに、中身は何でもよいので判別できるバイト列を使う
+    const blob1 = new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'image/jpeg' });
+    await A.social.setAvatar(blob1);
+    ok('プロフィールに結びつく', !!A.social.me.avatar_path, A.social.me.avatar_path);
+    ok('自分のフォルダの下に置かれる',
+       A.social.me.avatar_path.startsWith(A.supa.userId + '/'), A.social.me.avatar_path);
+
+    const url = A.social.avatarUrl(A.social.me);
+    ok('公開URLが作られる', url.includes('/storage/v1/object/public/avatars/'), url);
+
+    // 誰でも (ログインしていなくても) 読めること
+    const res = await fetch(url);
+    ok('認証なしでも読める', res.status === 200, 'status=' + res.status);
+
+    // 中身がそのまま返ること。文字列として扱うと画像が壊れるので、
+    // バイト単位で往復を確かめる。
+    const jpegLike = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0xFF, 0xD9]);
+    await A.social.setAvatar(new Blob([jpegLike], { type: 'image/jpeg' }));
+    const back = new Uint8Array(await (await fetch(A.social.avatarUrl(A.social.me))).arrayBuffer());
+    ok('バイト列がそのまま戻る', back.length === jpegLike.length && back.every((b, i) => b === jpegLike[i]),
+       [...back].join(',') + ' / 送ったのは ' + [...jpegLike].join(','));
+
+    // 他人からもプロフィールに写真が見えること
+    const seen = await C.social.searchPeople('あるく人');
+    ok('他人からも写真つきで見える', seen.length === 1 && !!seen[0].avatar_path,
+       JSON.stringify(seen.map(p => p.avatar_path)));
+
+    // 置き換えると名前が変わり、古いものは消える
+    const first = A.social.me.avatar_path;
+    await new Promise(r => setTimeout(r, 5));
+    await A.social.setAvatar(new Blob([new Uint8Array([9, 9])], { type: 'image/jpeg' }));
+    ok('置き換えると別の名前になる', A.social.me.avatar_path !== first,
+       first + ' → ' + A.social.me.avatar_path);
+    ok('古い写真は消える', !db.objects.has('avatars/' + first),
+       [...db.objects.keys()].join(', '));
+
+    // 他人のフォルダには置けない
+    let denied = null;
+    try { await C.supa.upload(A.supa.userId + '/横取り.jpg', blob1, 'avatars'); }
+    catch (e) { denied = e.message; }
+    ok('他人のフォルダには置けない', !!denied, denied || '(置けてしまった)');
+
+    const second = A.social.me.avatar_path;
+    await A.social.clearAvatar();
+    ok('やめると絵文字に戻る', A.social.me.avatar_path === null);
+    ok('写真も消える', !db.objects.has('avatars/' + second));
+  }
 
   head('ブロック');
   await A.social.loadBlocks(); await C.social.loadBlocks();

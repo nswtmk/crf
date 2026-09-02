@@ -104,10 +104,7 @@ function refreshMarkers() {
   const theirs = others.map(o => {
     const d = el('button', 'pin other');
     d.title = (o.author.nickname || '') + ': ' + (o.title || '記録');
-    const face = el('span', 'otherface');
-    face.textContent = o.author.icon_emoji || '👤';
-    face.style.background = o.author.icon_color || '#666';
-    d.append(face);
+    d.append(window.SocialUI.paintAvatar(el('span', 'otherface'), o.author));
     d.addEventListener('click', ev => { ev.stopPropagation(); openOther(o); });
     return { lat: o.lat, lng: o.lng, el: d };
   });
@@ -117,8 +114,7 @@ function refreshMarkers() {
 /** 他の人の記録を読むだけの表示 */
 function openOther(o) {
   window.SocialUI.setCurrentOther(o);
-  $('#o-icon').textContent = o.author.icon_emoji || '👤';
-  $('#o-icon').style.background = o.author.icon_color || '#666';
+  window.SocialUI.paintAvatar($('#o-icon'), o.author);
   $('#o-author').textContent = o.author.nickname || '(不明)';
   $('#o-when').textContent = new Date(o.ts).toLocaleDateString('ja-JP') +
     ' · ' + (o.visibility === 'public' ? '全体に公開' : '友達だけ');

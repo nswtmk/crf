@@ -16,8 +16,12 @@ create table if not exists public.profiles (
   nickname    text not null check (char_length(nickname) between 1 and 20),
   icon_emoji  text not null default '🐾' check (char_length(icon_emoji) <= 8),
   icon_color  text not null default '#1b6b4a' check (icon_color ~ '^#[0-9a-fA-F]{6}$'),
+  avatar_path text,          -- 写真のアイコン。未設定なら上の絵文字と色を使う
   created_at  timestamptz not null default now()
 );
+
+-- 既に profiles がある環境でも通るようにしておく
+alter table public.profiles add column if not exists avatar_path text;
 comment on table public.profiles is 'ニックネームとアイコン。誰でも読める。';
 
 -- ニックネームは大文字小文字を区別せず一意にする (検索して見つけてもらうため)
@@ -227,6 +231,28 @@ insert into storage.buckets (id, name, public)
 values ('photos', 'photos', false)
 on conflict (id) do nothing;
 
+-- アイコンは誰にでも見えてよい (プロフィール自体が誰にでも見えるため)。
+-- 公開バケットにしておくと <img> でそのまま出せる。
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
+on conflict (id) do update set public = true;
+
+-- 置き換え・削除は自分のフォルダ (<自分のid>/...) だけ
+drop policy if exists avatars_upload on storage.objects;
+create policy avatars_upload on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists avatars_update on storage.objects;
+create policy avatars_update on storage.objects
+  for update to authenticated
+  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists avatars_remove on storage.objects;
+create policy avatars_remove on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
 -- 自分のフォルダ (<自分のid>/...) にだけ置ける
 drop policy if exists photos_upload on storage.objects;
 create policy photos_upload on storage.objects
@@ -273,13 +299,13 @@ create trigger on_auth_user_created
 -- ニックネームで人を探す (プロフィール表を直接検索させない)
 -- =========================================================================
 create or replace function public.search_profiles(q text)
-returns table (id uuid, nickname text, icon_emoji text, icon_color text)
+returns table (id uuid, nickname text, icon_emoji text, icon_color text, avatar_path text)
 language sql
 stable
 security definer
 set search_path = public
 as $$
-  select p.id, p.nickname, p.icon_emoji, p.icon_color
+  select p.id, p.nickname, p.icon_emoji, p.icon_color, p.avatar_path
   from profiles p
   where p.nickname ilike '%' || q || '%'
   order by (lower(p.nickname) = lower(q)) desc, char_length(p.nickname)

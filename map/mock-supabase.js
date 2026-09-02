@@ -91,8 +91,11 @@ function createMock() {
     };
     if (req.method === 'OPTIONS') return send(204);
 
-    let raw = '';
-    for await (const c of req) raw += c;
+    // 本文はまずバイト列として受ける。文字列で受けると画像が壊れる。
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    const rawBuf = Buffer.concat(chunks);
+    const raw = rawBuf.toString('utf8');
     let body = null;
     try { body = raw ? JSON.parse(raw) : null; } catch (e) { body = raw; }
 
@@ -114,7 +117,7 @@ function createMock() {
         db.profiles.push({
           id: user.id,
           nickname: 'user' + user.id.replace(/-/g, '').slice(0, 8),
-          icon_emoji: '🐾', icon_color: '#1b6b4a',
+          icon_emoji: '🐾', icon_color: '#1b6b4a', avatar_path: null,
         });
       } else {
         if (!user || user.password !== password) return send(400, { msg: 'Invalid login credentials' });
@@ -132,7 +135,12 @@ function createMock() {
     if (p === '/rest/v1/rpc/search_profiles') {
       const q = String((body && body.q) || '').toLowerCase();
       const hit = db.profiles.filter(x => x.nickname.toLowerCase().includes(q)).slice(0, 20);
-      return send(200, hit.map(x => ({ id: x.id, nickname: x.nickname, icon_emoji: x.icon_emoji, icon_color: x.icon_color })));
+      // schema.sql の search_profiles と同じ列を返すこと。
+      // ここがずれると、テストが通っても本番で欠ける。
+      return send(200, hit.map(x => ({
+        id: x.id, nickname: x.nickname, icon_emoji: x.icon_emoji,
+        icon_color: x.icon_color, avatar_path: x.avatar_path || null,
+      })));
     }
 
     /* ---------------- テーブル ---------------- */
@@ -232,13 +240,24 @@ function createMock() {
     }
 
     /* ---------------- 写真の置き場 ---------------- */
-    const o = p.match(/^\/storage\/v1\/object\/photos\/(.+)$/);
+    // 公開バケットは認証なしで読める
+    const pub = p.match(/^\/storage\/v1\/object\/public\/([\w-]+)\/(.+)$/);
+    if (pub && req.method === 'GET') {
+      const key = pub[1] + '/' + decodeURIComponent(pub[2]);
+      if (!db.objects.has(key)) return send(404, { message: 'not found' });
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Access-Control-Allow-Origin': '*' });
+      return res.end(db.objects.get(key));
+    }
+
+    const o = p.match(/^\/storage\/v1\/object\/([\w-]+)\/(.+)$/);
     if (o) {
-      const key = decodeURIComponent(o[1]);
+      const bucket = o[1];
+      const key = bucket + '/' + decodeURIComponent(o[2]);
+      const folder = decodeURIComponent(o[2]).split('/')[0];
       if (req.method === 'POST') {
         if (!me) return send(401, { message: 'not authenticated' });
-        if (key.split('/')[0] !== me) return send(403, { message: 'new row violates row-level security policy' });
-        db.objects.set(key, raw);
+        if (folder !== me) return send(403, { message: 'new row violates row-level security policy' });
+        db.objects.set(key, rawBuf);
         return send(200, { Key: key });
       }
       if (req.method === 'GET') {
@@ -246,7 +265,11 @@ function createMock() {
         res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Access-Control-Allow-Origin': '*' });
         return res.end(db.objects.get(key));
       }
-      if (req.method === 'DELETE') { db.objects.delete(key); return send(200, {}); }
+      if (req.method === 'DELETE') {
+        if (!me) return send(401, { message: 'not authenticated' });
+        if (folder !== me) return send(403, { message: 'row violates row-level security policy' });
+        db.objects.delete(key); return send(200, {});
+      }
     }
 
     send(404, { message: 'not found: ' + p });

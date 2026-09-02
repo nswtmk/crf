@@ -198,11 +198,25 @@
         <input type="text" id="p-nick" maxlength="20" placeholder="ふりがなでも記号なしでも"></label>
 
       <div class="field"><span>アイコン</span>
-        <div class="emojigrid" id="p-emoji"></div>
+        <label class="addphoto" id="p-pick">
+          <span id="p-pick-label">写真を選ぶ</span>
+          <input type="file" id="p-file" accept="image/*" hidden>
+        </label>
+        <p class="hint">正方形に切り抜いて小さくしてから保存します。<strong>アイコンは誰にでも見えます。</strong></p>
+        <div class="btnrow" id="p-avatar-actions">
+          <button id="p-clear-avatar" class="ghost hidden">写真をやめて絵文字にする</button>
+        </div>
       </div>
-      <div class="field"><span>背景の色</span>
-        <div class="colorgrid" id="p-color"></div>
-      </div>
+
+      <details id="emoji-details">
+        <summary>写真を使わず絵文字にする</summary>
+        <div class="field"><span>絵文字</span>
+          <div class="emojigrid" id="p-emoji"></div>
+        </div>
+        <div class="field"><span>背景の色</span>
+          <div class="colorgrid" id="p-color"></div>
+        </div>
+      </details>
 
       <div class="btnrow"><button id="p-save" class="primary">プロフィールを保存</button></div>
       <p class="hint" id="p-msg"></p>

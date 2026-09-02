@@ -8,6 +8,8 @@
 
 (function (global) {
 
+  const PROFILE_COLS = 'id,nickname,icon_emoji,icon_color,avatar_path';
+
   const VIS = {
     private: { key: 'private', label: '自分だけ', icon: '🔒', remote: false },
     friends: { key: 'friends', label: '友達だけ', icon: '👥', remote: true },
@@ -37,7 +39,7 @@
     async loadMe() {
       if (!this.signedIn) { this.me = null; return null; }
       const rows = await this.supa.select('profiles',
-        'id=eq.' + this.supa.userId + '&select=id,nickname,icon_emoji,icon_color');
+        'id=eq.' + this.supa.userId + '&select=' + PROFILE_COLS);
       this.me = (rows && rows[0]) || null;
       return this.me;
     }
@@ -61,9 +63,49 @@
     }
 
     async getProfile(id) {
-      const rows = await this.supa.select('profiles',
-        'id=eq.' + id + '&select=id,nickname,icon_emoji,icon_color');
+      const rows = await this.supa.select('profiles', 'id=eq.' + id + '&select=' + PROFILE_COLS);
       return (rows && rows[0]) || null;
+    }
+
+    /** まとめて取る。列の指定をここに集めておかないと、
+        画面ごとに書き写して avatar_path のような追加が漏れる。 */
+    async getProfiles(ids) {
+      const list = [...new Set(ids)].filter(Boolean);
+      if (!list.length) return [];
+      const rows = await this.supa.select('profiles',
+        'id=in.(' + list.join(',') + ')&select=' + PROFILE_COLS);
+      return rows || [];
+    }
+
+    /* ---------- 写真のアイコン ---------- */
+
+    /** 正方形に整えた画像を上げ、プロフィールに結びつける */
+    async setAvatar(blob) {
+      if (!this.signedIn) throw new Error('ログインが必要です');
+      const old = this.me && this.me.avatar_path;
+      // 名前を毎回変えないと、端末やCDNが古い画像を出し続ける
+      const path = this.supa.userId + '/a' + Date.now().toString(36) + '.jpg';
+      await this.supa.upload(path, blob, 'avatars');
+      const rows = await this.supa.update('profiles', 'id=eq.' + this.supa.userId,
+        { avatar_path: path });
+      this.me = (rows && rows[0]) || this.me;
+      if (old && old !== path) await this.supa.removeFile(old, 'avatars').catch(() => {});
+      return this.me;
+    }
+
+    async clearAvatar() {
+      if (!this.signedIn) return this.me;
+      const old = this.me && this.me.avatar_path;
+      const rows = await this.supa.update('profiles', 'id=eq.' + this.supa.userId,
+        { avatar_path: null });
+      this.me = (rows && rows[0]) || this.me;
+      if (old) await this.supa.removeFile(old, 'avatars').catch(() => {});
+      return this.me;
+    }
+
+    /** 表示に使う画像URL。未設定なら null (呼び出し側が絵文字を出す) */
+    avatarUrl(profile) {
+      return profile && profile.avatar_path ? this.supa.publicUrl(profile.avatar_path, 'avatars') : null;
     }
 
     async searchPeople(q) {
@@ -221,8 +263,7 @@
       if (!rows || !rows.length) return [];
 
       const ids = [...new Set(rows.map(r => r.user_id))];
-      const profs = await this.supa.select('profiles',
-        'id=in.(' + ids.join(',') + ')&select=id,nickname,icon_emoji,icon_color');
+      const profs = await this.getProfiles(ids);
       const byId = {};
       for (const p of (profs || [])) byId[p.id] = p;
 
@@ -254,6 +295,7 @@
   ];
 
   global.Social = Social;
+  global.ProfileColumns = PROFILE_COLS;
   global.ReportReasons = REPORT_REASONS;
   global.Visibility = { VIS, VIS_ORDER, DEFAULT_VIS, visOf, shouldUpload, validateNickname };
 
