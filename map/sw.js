@@ -1,7 +1,7 @@
 /* アプリ本体はキャッシュしてオフラインでも起動できるようにする。
    地図タイルは別扱いで、一度見た範囲だけを上限つきで貯める。
    ファイルを更新したら SHELL の版を上げること。 */
-const SHELL = 'trailmap-shell-v2';
+const SHELL = 'trailmap-shell-v3';
 const TILES = 'trailmap-tiles-v1';
 const TILE_LIMIT = 1200;
 
@@ -34,6 +34,18 @@ async function trimTiles(cache) {
   if (keys.length <= TILE_LIMIT) return;
   for (const k of keys.slice(0, keys.length - TILE_LIMIT)) await cache.delete(k);
 }
+
+// 通知をタップしたら、開いているアプリに戻る (無ければ開く)
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil((async () => {
+    const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of list) {
+      if (c.url.includes('/map/') && 'focus' in c) return c.focus();
+    }
+    if (self.clients.openWindow) return self.clients.openWindow('./index.html');
+  })());
+});
 
 self.addEventListener('fetch', e => {
   const req = e.request;

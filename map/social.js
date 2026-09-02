@@ -258,7 +258,7 @@
       // 片方だけに頼ると、どちらかの取りこぼしがそのまま事故になる。
       const rows = await this.supa.select('visits',
         'user_id=neq.' + this.supa.userId +
-        '&select=id,user_id,lat,lng,visited_at,title,comment,visibility' +
+        '&select=id,user_id,lat,lng,visited_at,title,comment,visibility,created_at' +
         '&order=visited_at.desc&limit=' + (limit || 300));
       if (!rows || !rows.length) return [];
 
@@ -272,6 +272,9 @@
         userId: r.user_id,
         lat: r.lat, lng: r.lng,
         ts: new Date(r.visited_at).getTime(),
+        // 新着かどうかは投稿された時刻で決める。訪問日時は過去に遡って
+        // 記録できるので、それを使うと古い日付の新規投稿を見落とす。
+        postedAt: r.created_at ? new Date(r.created_at).getTime() : new Date(r.visited_at).getTime(),
         title: r.title, comment: r.comment,
         visibility: r.visibility,
         author: byId[r.user_id] || { nickname: '(不明)', icon_emoji: '👤', icon_color: '#888888' },

@@ -19,7 +19,14 @@ let supa = null, social = null;
 let cells = new Set();           // 踏破ずみのマス "x,y"
 let editing = null;              // 編集中の記録
 let pickMode = false;
-let prefs = { grid: 15, fog: true, autofog: true, lat: 35.681236, lng: 139.767125, zoom: 13 };
+let prefs = {
+  grid: 15, fog: true, autofog: true, lat: 35.681236, lng: 139.767125, zoom: 13,
+  notify: true,          // 友達の新着を知らせる
+  notifyFollow: false,   // フォローしている人の全体公開も含める
+  seenAt: 0,             // ここまでは見た、という時刻
+};
+let news = [];                   // まだ見ていない友達の記録
+let notified = new Set();        // 一度通知したものは繰り返さない
 let objectUrls = [];
 
 /* ---------- 設定の保存 ---------------------------------------------------- */
@@ -142,6 +149,8 @@ async function reload() {
 async function reloadOthers() {
   if (!social || !supa || !supa.signedIn) {
     if (others.length) { others = []; refreshMarkers(); map.schedule(); }
+    news = [];
+    updateNewsBadge();
     return;
   }
   try {
@@ -151,6 +160,133 @@ async function reloadOthers() {
   }
   refreshMarkers();
   map.schedule();
+  checkNews();
+}
+
+/* ---------- 新着の知らせ ----------
+   「新着」は投稿された時刻で判断する。訪問日時は過去に遡って書けるので、
+   それを使うと古い日付で投稿されたものを見落とす。
+   ------------------------------------------------------------------------ */
+
+function isNotifyTarget(o) {
+  if (!social.isFriend(o.userId)) {
+    if (!prefs.notifyFollow) return false;
+    if (!social.following.has(o.userId)) return false;
+    if (o.visibility !== 'public') return false;
+  }
+  return true;
+}
+
+function checkNews() {
+  if (!prefs.notify) { news = []; updateNewsBadge(); return; }
+  news = others
+    .filter(o => o.postedAt > prefs.seenAt && isNotifyTarget(o))
+    .sort((a, b) => b.postedAt - a.postedAt);
+  updateNewsBadge();
+  showOsNotification();
+}
+
+function updateNewsBadge() {
+  const btn = $('#b-news');
+  const on = !!(supa && supa.signedIn && prefs.notify);
+  btn.classList.toggle('hidden', !on);
+  $('#news-count').textContent = news.length > 99 ? '99+' : String(news.length);
+  $('#news-count').classList.toggle('hidden', news.length === 0);
+}
+
+/** 端末の通知を出す。許可されていなければ何もしない。 */
+async function showOsNotification() {
+  if (!prefs.notify || !news.length) return;
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+
+  const fresh = news.filter(o => !notified.has(o.id));
+  if (!fresh.length) return;
+  fresh.forEach(o => notified.add(o.id));
+
+  const first = fresh[0];
+  const body = fresh.length === 1
+    ? (first.author.nickname + 'さんが「' + (first.title || '名前のない場所') + '」を記録しました')
+    : (first.author.nickname + 'さんほか、' + fresh.length + '件の新しい記録があります');
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    // スマホでは new Notification() が使えないので、Service Worker 経由で出す
+    if (reg && reg.showNotification) {
+      await reg.showNotification('足あと地図', { body, icon: './icon-192.png', badge: './icon-192.png', tag: 'trailmap-news' });
+    } else {
+      new Notification('足あと地図', { body, icon: './icon-192.png', tag: 'trailmap-news' });
+    }
+  } catch (e) { /* 通知が出せなくても、アプリ内の印は出ている */ }
+}
+
+function openNews() {
+  const box = $('#news-list');
+  box.textContent = '';
+  if (!news.length) {
+    const p = el('p', 'news-empty');
+    p.textContent = '新しい記録はありません。';
+    box.append(p);
+  }
+  for (const o of news) {
+    const row = el('button', 'listrow newsrow');
+    const th = el('div', 'lthumb');
+    window.SocialUI.paintAvatar(th, o.author);
+    const body = el('div', 'lbody');
+    const t = el('div', 'ltitle');
+    t.textContent = o.title || '(名前なし)';
+    const meta = el('div', 'lmeta');
+    const who = el('em'); who.textContent = o.author.nickname;
+    meta.append(who, document.createTextNode(' · ' + relTime(o.postedAt) +
+      (o.visibility === 'public' ? ' · 全体に公開' : ' · 友達だけ')));
+    body.append(t, meta);
+    if (o.comment) { const c = el('div', 'lcomment'); c.textContent = o.comment; body.append(c); }
+    row.append(th, body);
+    row.addEventListener('click', () => {
+      hide('#news-bg');
+      map.setView(o.lat, o.lng, Math.max(map.zoom, 15));
+      openOther(o);
+    });
+    box.append(row);
+  }
+  show('#news-bg');
+  // 開いた時点で「見た」ことにする
+  prefs.seenAt = Date.now();
+  savePrefs();
+  news = [];
+  updateNewsBadge();
+}
+
+function relTime(ts) {
+  const d = Math.max(0, Date.now() - ts);
+  const m = Math.floor(d / 60000);
+  if (m < 1) return 'たった今';
+  if (m < 60) return m + '分前';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + '時間前';
+  const day = Math.floor(h / 24);
+  if (day < 30) return day + '日前';
+  return new Date(ts).toLocaleDateString('ja-JP');
+}
+
+function updateNotifyHint() {
+  const hint = $('#n-hint');
+  const btn = $('#n-permit');
+  if (typeof Notification === 'undefined') {
+    hint.textContent = 'この端末では通知を出せません。アプリ内の印だけでお知らせします。';
+    btn.classList.add('hidden');
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    hint.textContent = '端末の通知は許可されています。アプリを開いているあいだ、友達の新しい記録を知らせます。';
+    btn.classList.add('hidden');
+  } else if (Notification.permission === 'denied') {
+    hint.textContent = '端末の通知が拒否されています。端末の設定から許可し直してください。' +
+      'アプリ内の印(🔔)は許可がなくても出ます。';
+    btn.classList.add('hidden');
+  } else {
+    hint.textContent = '許可すると、アプリを開いているあいだ端末の通知が出ます。' +
+      'アプリを閉じていても届く通知には、別途サーバー側の設定が必要です(SETUP.md)。';
+    btn.classList.remove('hidden');
+  }
 }
 
 /** 端末の記録をまとめてサーバーへ反映する */
@@ -407,6 +543,9 @@ async function openList() {
 /* ---------- 設定 ---------------------------------------------------------- */
 
 function syncMenu() {
+  updateNotifyHint();
+  $('#n-enabled').checked = prefs.notify;
+  $('#n-follow').checked = prefs.notifyFollow;
   const sel = $('#s-grid');
   sel.textContent = '';
   for (const lv of G.GRID_LEVELS) {
@@ -564,6 +703,28 @@ async function boot() {
     else { setPickMode(true); toast('地図を動かして場所を合わせてください'); }
   });
 
+  $('#b-news').addEventListener('click', openNews);
+  $('#news-close').addEventListener('click', () => hide('#news-bg'));
+  $('#news-bg').addEventListener('click', e => { if (e.target.id === 'news-bg') hide('#news-bg'); });
+
+  $('#n-enabled').checked = prefs.notify;
+  $('#n-follow').checked = prefs.notifyFollow;
+  $('#n-enabled').addEventListener('change', e => {
+    prefs.notify = e.target.checked; savePrefs(); checkNews();
+  });
+  $('#n-follow').addEventListener('change', e => {
+    prefs.notifyFollow = e.target.checked; savePrefs(); checkNews();
+  });
+  $('#n-permit').addEventListener('click', async () => {
+    if (typeof Notification === 'undefined') return;
+    try {
+      const r = await Notification.requestPermission();
+      updateNotifyHint();
+      if (r === 'granted') { toast('通知を許可しました'); showOsNotification(); }
+      else toast('通知は許可されませんでした');
+    } catch (e) { updateNotifyHint(); }
+  });
+
   $('#b-list').addEventListener('click', openList);
   $('#badge').addEventListener('click', openList);
   $('#list-close').addEventListener('click', () => hide('#list-bg'));
@@ -636,7 +797,7 @@ async function boot() {
   }
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
-    for (const id of ['edit-bg', 'list-bg', 'menu-bg', 'viewer']) hide('#' + id);
+    for (const id of ['edit-bg', 'list-bg', 'menu-bg', 'news-bg', 'viewer']) hide('#' + id);
     if (pickMode) setPickMode(false);
   });
 
@@ -644,13 +805,17 @@ async function boot() {
     supa, social,
     onChanged: async () => {
       renderVisibilityHintIfOpen();
+      // 初めてログインしたときに、過去の投稿がすべて新着として押し寄せないようにする
+      if (supa.signedIn && !prefs.seenAt) { prefs.seenAt = Date.now(); savePrefs(); }
       try { await social.loadBlocks(); } catch (e) { /* 圏外なら後で読み直す */ }
       await reloadOthers();
       updateSyncHint();
+      updateNewsBadge();
     },
   });
   $('#a-sync').addEventListener('click', syncAll);
 
+  updateNewsBadge();
   await reload();
 
   // ログイン済みなら、自分の情報と他の人の記録を裏で読み込む

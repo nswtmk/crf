@@ -198,9 +198,14 @@ function createMock() {
               return send(400, { message: 'visits_visibility_check' });   // private は受け付けない
             }
             const dup = row.local_id && db.visits.find(v => v.user_id === me && v.local_id === row.local_id);
-            if (dup && upsert) { Object.assign(dup, row); out.push(dup); continue; }
+            if (dup && upsert) {
+              const keep = dup.created_at;          // 上書きでも投稿時刻は変えない
+              Object.assign(dup, row); dup.created_at = keep;
+              out.push(dup); continue;
+            }
             if (dup) return send(409, { message: 'duplicate key value violates unique constraint' });
             row.id = row.id || randomUUID();
+            row.created_at = new Date().toISOString();
             db.visits.push(row); out.push(row); continue;
           }
           row.id = row.id || randomUUID();

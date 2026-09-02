@@ -44,7 +44,8 @@ const head = t => console.log('\n=== ' + t + ' ===');
 async function newUser(b, email) {
   const ctx = await b.newContext({
     viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'ja-JP',
-    permissions: ['geolocation'], geolocation: { latitude: 35.68, longitude: 139.76 },
+    permissions: ['geolocation', 'notifications'],
+    geolocation: { latitude: 35.68, longitude: 139.76 },
   });
   await ctx.route('**/tile.openstreetmap.org/**', r => r.fulfill({ status: 200, contentType: 'image/png', body: TILE }));
   const pg = await ctx.newPage();
@@ -274,14 +275,86 @@ async function addVisit(pg, x, y, title, vis) {
   ok('問い合わせ先が載っている', contact && contact.startsWith('mailto:'), contact);
   await B.pg.click('#menu-close');
 
+  head('9e. 友達の新着を知らせる');
+  // 直前のブロック検証でフォローが外れているので、友達に戻してから始める
+  await B.pg.click('#me'); await B.pg.waitForTimeout(500);
+  await B.pg.fill('#fr-q', nick('あるく人')); await B.pg.waitForTimeout(800);
+  await B.pg.click('#fr-results .febtn'); await B.pg.waitForTimeout(900);
+  await B.pg.click('#friends-close'); await B.pg.waitForTimeout(400);
+  await B.pg.reload({ waitUntil: 'networkidle' }); await B.pg.waitForTimeout(1600);
+  ok('友達に戻っている', (await B.pg.$$eval('.pin.other', ns => ns.length)) >= 2,
+     (await B.pg.$$eval('.pin.other', ns => ns.length)) + '本');
+  // 友達になった直後は、それまで見えなかった相手の記録が新着として出る。
+  // ここではその後の増分を見たいので、一度開いて既読にしておく。
+  if (!(await B.pg.$eval('#b-news', n => n.classList.contains('hidden')))) {
+    await B.pg.click('#b-news'); await B.pg.waitForTimeout(400);
+    await B.pg.click('#news-close'); await B.pg.waitForTimeout(300);
+  }
+  ok('既読にすると印が消える', await B.pg.$eval('#news-count', n => n.classList.contains('hidden')),
+     'badge=' + await B.pg.$eval('#news-count', n => n.textContent));
+
+  // ブラウザの通知を捕まえる
+  await B.pg.evaluate(() => {
+    window.__notes = [];
+    navigator.serviceWorker.getRegistration().then(r => {
+      if (!r) return;
+      const orig = r.showNotification.bind(r);
+      r.showNotification = (title, opts) => { window.__notes.push({ title, body: opts && opts.body }); return orig(title, opts); };
+    });
+  });
+  await B.pg.waitForTimeout(300);
+
+  await addVisit(A.pg, 170, 520, '新しく行った場所', '友達だけ');
+  await B.pg.reload({ waitUntil: 'networkidle' }); await B.pg.waitForTimeout(1800);
+
+  const badge1 = await B.pg.$eval('#news-count', n => n.textContent);
+  ok('新着の数が出る', badge1 === '1', 'badge=' + badge1);
+  ok('ベルが表示される', await B.pg.isVisible('#b-news'));
+
+  await B.pg.click('#b-news'); await B.pg.waitForTimeout(500);
+  const newsText = (await B.pg.textContent('#news-list')).replace(/\s+/g, ' ').trim();
+  ok('新着一覧に出る', newsText.includes('新しく行った場所') && newsText.includes(nick('あるく人')),
+     newsText.slice(0, 80));
+  await B.pg.click('#news-close'); await B.pg.waitForTimeout(400);
+  ok('見たら数が戻る', await B.pg.$eval('#news-count', n => n.classList.contains('hidden')),
+     await B.pg.$eval('#news-count', n => n.textContent));
+
+  // 他人 (友達でない) の投稿では知らせない
+  await addVisit(C.pg, 200, 300, 'C の公開記録', '全体に公開');
+  await B.pg.reload({ waitUntil: 'networkidle' }); await B.pg.waitForTimeout(1800);
+  ok('友達でない人の投稿では知らせない',
+     await B.pg.$eval('#news-count', n => n.classList.contains('hidden')),
+     'badge=' + await B.pg.$eval('#news-count', n => n.textContent));
+
+  head('9f. 通知の設定');
+  await B.pg.click('#b-menu'); await B.pg.waitForTimeout(400);
+  ok('通知の切り替えがある', await B.pg.isVisible('#n-enabled'));
+  ok('既定で入っている', await B.pg.isChecked('#n-enabled'));
+  await B.pg.uncheck('#n-enabled'); await B.pg.waitForTimeout(300);
+  await B.pg.click('#menu-close'); await B.pg.waitForTimeout(300);
+  await addVisit(A.pg, 260, 560, '切ったあとの記録', '友達だけ');
+  await B.pg.reload({ waitUntil: 'networkidle' }); await B.pg.waitForTimeout(1800);
+  ok('切ると知らせが出ない', await B.pg.$eval('#b-news', n => n.classList.contains('hidden')));
+  await B.pg.click('#b-menu'); await B.pg.waitForTimeout(400);
+  await B.pg.check('#n-enabled'); await B.pg.waitForTimeout(300);
+  await B.pg.click('#menu-close'); await B.pg.waitForTimeout(500);
+  ok('戻すとまた出る', !(await B.pg.$eval('#b-news', n => n.classList.contains('hidden'))));
+  await B.pg.screenshot({ path: 'news-badge.png' });
+  await B.pg.click('#b-news'); await B.pg.waitForTimeout(500);
+  await B.pg.screenshot({ path: 'news-list.png' });
+  await B.pg.click('#news-close'); await B.pg.waitForTimeout(300);
+
   head('10. 削除するとみんなから消える');
+  const seenBefore = await B.pg.$$eval('.pin.other', ns => ns.length);
   await A.pg.click('.pin.shared'); await A.pg.waitForTimeout(500);
   ok('自分のピンから編集が開く', await A.pg.isVisible('#f-delete'));
-  A.pg.once('dialog', d => d.accept());
-  await A.pg.click('#f-delete'); await A.pg.waitForTimeout(1200);
-  await B.pg.reload({ waitUntil: 'networkidle' }); await B.pg.waitForTimeout(1500);
+  const answerAll2 = d => d.accept();
+  A.pg.on('dialog', answerAll2);
+  await A.pg.click('#f-delete'); await A.pg.waitForTimeout(1400);
+  A.pg.off('dialog', answerAll2);
+  await B.pg.reload({ waitUntil: 'networkidle' }); await B.pg.waitForTimeout(1600);
   const bPins3 = await B.pg.$$eval('.pin.other', ns => ns.length);
-  ok('友達の画面からも消える', bPins3 === 1, bPins3 + '本');
+  ok('友達の画面からも1件減る', bPins3 === seenBefore - 1, seenBefore + ' → ' + bPins3);
 
   head('11. ログアウトしても端末の記録は残る');
   const before = (await A.pg.$$('.pin')).length;

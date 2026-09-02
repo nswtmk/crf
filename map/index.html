@@ -37,6 +37,9 @@
 
 <!-- 右側の縦ボタン -->
 <div class="sidebtns">
+  <button id="b-news" class="hidden" title="友達の新しい記録">
+    🔔<span class="newsdot" id="news-count">0</span>
+  </button>
   <button id="b-locate" title="現在地へ">📍</button>
   <button id="b-fog" title="霧の表示を切り替え" aria-pressed="true">🌫️</button>
   <button id="b-zin" title="拡大">＋</button>
@@ -121,6 +124,20 @@
       <input type="checkbox" id="s-autofog" checked>
       <span>訪問した場所の周り1マスも踏破ずみにする</span>
     </label>
+
+    <h4>通知</h4>
+    <label class="field checkline">
+      <input type="checkbox" id="n-enabled">
+      <span>友達が記録したら知らせる</span>
+    </label>
+    <label class="field checkline">
+      <input type="checkbox" id="n-follow">
+      <span>フォローしている人の全体公開も含める</span>
+    </label>
+    <div class="btnrow">
+      <button id="n-permit">端末の通知を許可する</button>
+    </div>
+    <p class="hint" id="n-hint"></p>
 
     <h4>データ</h4>
     <p class="hint">
@@ -252,6 +269,9 @@
       <button class="tab" data-tab="blocked">ブロック</button>
     </div>
     <div id="fr-list" class="people"></div>
+    <div class="btnrow">
+      <button id="fr-account">アカウントとプロフィール</button>
+    </div>
     <button class="sheet-close" id="friends-close">閉じる</button>
   </div>
 </div>
@@ -277,6 +297,15 @@
       <button id="o-report" class="ghost">通報する</button>
       <button id="o-block" class="ghost">この人をブロック</button>
     </div>
+  </div>
+</div>
+
+<!-- ============ 新着 ============ -->
+<div class="sheet-bg hidden" id="news-bg">
+  <div class="sheet tall" role="dialog" aria-modal="true" aria-labelledby="news-title">
+    <h3 id="news-title">友達の新しい記録</h3>
+    <div id="news-list" class="list"></div>
+    <button class="sheet-close" id="news-close">閉じる</button>
   </div>
 </div>
 

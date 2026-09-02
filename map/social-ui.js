@@ -314,6 +314,10 @@
     $('#me').addEventListener('contextmenu', e => { e.preventDefault(); openAccount(); });
 
     $('#account-close').addEventListener('click', () => $('#account-bg').classList.add('hidden'));
+    $('#fr-account').addEventListener('click', () => {
+      $('#friends-bg').classList.add('hidden');
+      openAccount();
+    });
     $('#friends-close').addEventListener('click', () => $('#friends-bg').classList.add('hidden'));
 
     // 接続先の設定
