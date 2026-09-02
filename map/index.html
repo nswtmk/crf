@@ -134,6 +134,10 @@
       <input type="checkbox" id="n-follow">
       <span>フォローしている人の全体公開も含める</span>
     </label>
+    <label class="field checkline">
+      <input type="checkbox" id="n-like">
+      <span>自分の記録にいいねが付いたら知らせる</span>
+    </label>
     <div class="btnrow">
       <button id="n-permit">端末の通知を許可する</button>
     </div>
@@ -289,6 +293,12 @@
     <h3 id="other-title">-</h3>
     <p id="o-comment" class="othercomment"></p>
     <p class="coords" id="o-coords"></p>
+    <div class="likerow">
+      <button id="o-like" class="likebtn">
+        <span class="likeheart">♡</span><span id="o-like-count">0</span>
+      </button>
+      <span class="likenote" id="o-like-note"></span>
+    </div>
     <div class="btnrow">
       <button id="o-goto">この場所へ</button>
       <button id="o-close" class="primary">閉じる</button>

@@ -215,6 +215,45 @@ async function addVisit(pg, x, y, title, vis) {
   ok('編集や削除のボタンは無い', !(await B.pg.isVisible('#f-delete')));
   await B.pg.click('#o-close');
 
+  head('8b. いいね');
+  await B.pg.click('.pin.other'); await B.pg.waitForTimeout(500);
+  ok('いいねボタンがある', await B.pg.isVisible('#o-like'));
+  ok('最初は0', (await B.pg.textContent('#o-like-count')) === '0');
+  ok('最初は空のハート', (await B.pg.textContent('#o-like .likeheart')).includes('♡'));
+
+  await B.pg.click('#o-like'); await B.pg.waitForTimeout(900);
+  ok('押すと1になる', (await B.pg.textContent('#o-like-count')) === '1',
+     await B.pg.textContent('#o-like-count'));
+  ok('ハートが塗られる', (await B.pg.textContent('#o-like .likeheart')).includes('♥'));
+  ok('いいね済みと出る', (await B.pg.textContent('#o-like-note')).includes('いいね済み'));
+  ok('サーバーに1件', mock.db.likes.length === 1, mock.db.likes.length + '件');
+  await B.pg.screenshot({ path: 'like-on.png' });
+
+  await B.pg.click('#o-like'); await B.pg.waitForTimeout(900);
+  ok('もう一度押すと取り消せる', (await B.pg.textContent('#o-like-count')) === '0' && mock.db.likes.length === 0,
+     'count=' + await B.pg.textContent('#o-like-count') + ' server=' + mock.db.likes.length);
+
+  await B.pg.click('#o-like'); await B.pg.waitForTimeout(900);
+  await B.pg.click('#o-close'); await B.pg.waitForTimeout(300);
+  await B.pg.reload({ waitUntil: 'networkidle' }); await B.pg.waitForTimeout(1600);
+  await B.pg.click('.pin.other'); await B.pg.waitForTimeout(600);
+  ok('読み込み直しても残る', (await B.pg.textContent('#o-like-count')) === '1' &&
+     (await B.pg.textContent('#o-like .likeheart')).includes('♥'),
+     await B.pg.textContent('#o-like-count'));
+  await B.pg.click('#o-close'); await B.pg.waitForTimeout(300);
+
+  // 付けられた側 (A) に知らせが出る
+  await A.pg.reload({ waitUntil: 'networkidle' }); await A.pg.waitForTimeout(1900);
+  const aBadge = await A.pg.$eval('#news-count', n => n.textContent);
+  ok('いいねされた側に知らせが出る', aBadge !== '0' &&
+     !(await A.pg.$eval('#news-count', n => n.classList.contains('hidden'))), 'badge=' + aBadge);
+  await A.pg.click('#b-news'); await A.pg.waitForTimeout(500);
+  const aNews = (await A.pg.textContent('#news-list')).replace(/\s+/g, ' ').trim();
+  ok('誰がいいねしたか出る', aNews.includes('あなたの記録にいいね') && aNews.includes(nick('ともだち')),
+     aNews.slice(0, 90));
+  await A.pg.screenshot({ path: 'like-news.png' });
+  await A.pg.click('#news-close'); await A.pg.waitForTimeout(300);
+
   head('9. 霧は自分の足あとだけで晴れる');
   const bCells = await B.pg.textContent('#b-cells');
   ok('他人の記録では霧が晴れない', bCells === '0', 'マス数=' + bCells);

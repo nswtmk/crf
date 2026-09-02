@@ -243,6 +243,64 @@ function schemaSearchColumns() {
     ok('写真も消える', !db.objects.has('avatars/' + second));
   }
 
+  head('いいね');
+  {
+    await A.social.loadBlocks(); await B.social.loadBlocks(); await C.social.loadBlocks();
+    // A の全体公開の記録を用意する
+    const shown = { id: 'lk1', lat: 35.1, lng: 139.1, ts: Date.now(), title: 'いいね対象', comment: '', visibility: 'public' };
+    const rShown = await A.social.pushVisit(shown);
+
+    let lk = await C.social.fetchLikes([rShown.remoteId]);
+    ok('最初は0件', (lk.counts[rShown.remoteId] || 0) === 0 && !lk.mine.has(rShown.remoteId));
+
+    await C.social.like(rShown.remoteId);
+    lk = await C.social.fetchLikes([rShown.remoteId]);
+    ok('付けると1件になる', lk.counts[rShown.remoteId] === 1 && lk.mine.has(rShown.remoteId));
+
+    // 別の人が付けると2件。自分が付けたかは人ごとに変わる。
+    await B.social.like(rShown.remoteId);
+    const lkA = await A.social.fetchLikes([rShown.remoteId]);
+    ok('2人ぶん数えられる', lkA.counts[rShown.remoteId] === 2, JSON.stringify(lkA.counts));
+    ok('自分が付けていなければ mine に入らない', !lkA.mine.has(rShown.remoteId));
+
+    // 二重に押しても増えない
+    await C.social.like(rShown.remoteId);
+    lk = await C.social.fetchLikes([rShown.remoteId]);
+    ok('二度押しても増えない', lk.counts[rShown.remoteId] === 2, String(lk.counts[rShown.remoteId]));
+
+    await C.social.unlike(rShown.remoteId);
+    lk = await C.social.fetchLikes([rShown.remoteId]);
+    ok('取り消せる', lk.counts[rShown.remoteId] === 1 && !lk.mine.has(rShown.remoteId));
+
+    // 見えない記録にはいいねできない (C は A と友達ではない)
+    const secret = { id: 'lk2', lat: 35.2, lng: 139.2, ts: Date.now(), title: '友達限定', comment: '', visibility: 'friends' };
+    const rSecret = await A.social.pushVisit(secret);
+    let denied = null;
+    try { await C.social.like(rSecret.remoteId); } catch (e) { denied = e.message; }
+    ok('見えない記録にはいいねできない', !!denied, denied || '(できてしまった)');
+
+    const hidden = await C.social.fetchLikes([rSecret.remoteId]);
+    ok('見えない記録のいいねは数えられない', !hidden.counts[rSecret.remoteId]);
+
+    // 他人になりすまして付けられない
+    let spoof = null;
+    try { await C.supa.insert('likes', { visit_id: rShown.remoteId, user_id: B.supa.userId }); }
+    catch (e) { spoof = e.message; }
+    ok('他人の名前では付けられない', !!spoof, spoof || '(付けられてしまった)');
+
+    // 自分の記録に付いたいいねを知らせに使える
+    const onMine = await A.social.fetchLikesOnMine([rShown.remoteId]);
+    ok('自分の記録へのいいねを拾える', onMine.length === 1 && onMine[0].visitId === rShown.remoteId,
+       JSON.stringify(onMine.map(x => x.author.nickname)));
+    ok('誰が付けたか分かる', !!onMine[0].author.nickname, onMine[0].author.nickname);
+
+    // 記録を消すと、ぶら下がるいいねも消える
+    shown.remoteId = rShown.remoteId;
+    await A.social.deleteRemote(shown);
+    ok('記録を消すといいねも消える', db.likes.filter(l => l.visit_id === rShown.remoteId).length === 0,
+       db.likes.length + '件残っている');
+  }
+
   head('ブロック');
   await A.social.loadBlocks(); await C.social.loadBlocks();
   const openPub = { id: 'v9', lat: 36, lng: 140, ts: Date.now(), title: 'Cに見せる', comment: '', visibility: 'public' };

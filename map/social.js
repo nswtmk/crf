@@ -151,6 +151,57 @@
       }));
     }
 
+    /* ---------- いいね ----------
+       どの記録に何件付いているかは、見える記録の分だけサーバーが返す。
+       見えない記録のいいねは数えることもできない (RLS がそうしている)。
+       ------------------------------------------------------------------ */
+
+    /** 指定した記録のいいねを集める。件数と、自分が付けたかどうか。 */
+    async fetchLikes(visitIds) {
+      const ids = [...new Set(visitIds)].filter(Boolean);
+      const out = { counts: {}, mine: new Set() };
+      if (!this.signedIn || !ids.length) return out;
+      const rows = await this.supa.select('likes',
+        'visit_id=in.(' + ids.join(',') + ')&select=visit_id,user_id');
+      for (const r of (rows || [])) {
+        out.counts[r.visit_id] = (out.counts[r.visit_id] || 0) + 1;
+        if (r.user_id === this.supa.userId) out.mine.add(r.visit_id);
+      }
+      return out;
+    }
+
+    async like(visitId) {
+      if (!this.signedIn) throw new Error('いいねするにはログインが必要です');
+      await this.supa.insert('likes', { visit_id: visitId, user_id: this.supa.userId },
+        { upsert: true, onConflict: 'visit_id,user_id' });
+    }
+
+    async unlike(visitId) {
+      if (!this.signedIn) return;
+      await this.supa.remove('likes',
+        'visit_id=eq.' + visitId + '&user_id=eq.' + this.supa.userId);
+    }
+
+    /** 自分の記録に付いたいいね。知らせに使う。自分で付けた分は除く。 */
+    async fetchLikesOnMine(remoteIds) {
+      const ids = [...new Set(remoteIds)].filter(Boolean);
+      if (!this.signedIn || !ids.length) return [];
+      const rows = await this.supa.select('likes',
+        'visit_id=in.(' + ids.join(',') + ')&user_id=neq.' + this.supa.userId +
+        '&select=visit_id,user_id,created_at&order=created_at.desc&limit=200');
+      if (!rows || !rows.length) return [];
+      const profs = await this.getProfiles(rows.map(r => r.user_id));
+      const byId = {};
+      for (const p of profs) byId[p.id] = p;
+      return rows
+        .filter(r => !this.blocked.has(r.user_id))
+        .map(r => ({
+          visitId: r.visit_id,
+          author: byId[r.user_id] || { nickname: '(不明)', icon_emoji: '👤', icon_color: '#888' },
+          postedAt: new Date(r.created_at).getTime(),
+        }));
+    }
+
     /* ---------- ブロックと通報 ----------
        App Store のガイドライン 1.2 が求める、通報とブロックの受け口。
        ------------------------------------------------------------------ */

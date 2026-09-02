@@ -23,10 +23,12 @@ let prefs = {
   grid: 15, fog: true, autofog: true, lat: 35.681236, lng: 139.767125, zoom: 13,
   notify: true,          // 友達の新着を知らせる
   notifyFollow: false,   // フォローしている人の全体公開も含める
+  notifyLike: true,      // 自分の記録へのいいねも知らせる
   seenAt: 0,             // ここまでは見た、という時刻
 };
-let news = [];                   // まだ見ていない友達の記録
+let news = [];                   // まだ見ていない知らせ (友達の記録 / 自分への いいね)
 let notified = new Set();        // 一度通知したものは繰り返さない
+let likes = { counts: {}, mine: new Set() };   // 見えている記録のいいね
 let objectUrls = [];
 
 /* ---------- 設定の保存 ---------------------------------------------------- */
@@ -129,6 +131,8 @@ function openOther(o) {
   $('#o-comment').textContent = o.comment || '';
   $('#o-comment').classList.toggle('hidden', !o.comment);
   $('#o-coords').textContent = o.lat.toFixed(5) + ', ' + o.lng.toFixed(5);
+  renderLike(o);
+  $('#o-like').onclick = () => toggleLike(o);
   $('#o-goto').onclick = () => {
     hide('#other-bg');
     map.setView(o.lat, o.lng, Math.max(map.zoom, 15));
@@ -158,9 +162,20 @@ async function reloadOthers() {
   } catch (e) {
     others = [];
   }
+  await reloadLikes();
   refreshMarkers();
   map.schedule();
-  checkNews();
+  await checkNews();
+}
+
+/** 見えている記録のいいねを数え直す */
+async function reloadLikes() {
+  if (!social || !supa || !supa.signedIn) { likes = { counts: {}, mine: new Set() }; return; }
+  try {
+    likes = await social.fetchLikes(others.map(o => o.id));
+  } catch (e) {
+    likes = { counts: {}, mine: new Set() };
+  }
 }
 
 /* ---------- 新着の知らせ ----------
@@ -177,11 +192,31 @@ function isNotifyTarget(o) {
   return true;
 }
 
-function checkNews() {
+async function checkNews() {
   if (!prefs.notify) { news = []; updateNewsBadge(); return; }
-  news = others
+
+  // 1) 友達の新しい記録
+  const posts = others
     .filter(o => o.postedAt > prefs.seenAt && isNotifyTarget(o))
-    .sort((a, b) => b.postedAt - a.postedAt);
+    .map(o => ({ kind: 'visit', id: 'v:' + o.id, postedAt: o.postedAt, visit: o, author: o.author }));
+
+  // 2) 自分の記録に付いたいいね
+  let hearts = [];
+  if (prefs.notifyLike && social && supa && supa.signedIn) {
+    try {
+      const mineRemote = visits.filter(v => v.remoteId).map(v => v.remoteId);
+      const byId = {};
+      for (const v of visits) if (v.remoteId) byId[v.remoteId] = v;
+      hearts = (await social.fetchLikesOnMine(mineRemote))
+        .filter(l => l.postedAt > prefs.seenAt)
+        .map(l => ({
+          kind: 'like', id: 'l:' + l.visitId + ':' + l.author.id,
+          postedAt: l.postedAt, author: l.author, target: byId[l.visitId],
+        }));
+    } catch (e) { hearts = []; }
+  }
+
+  news = posts.concat(hearts).sort((a, b) => b.postedAt - a.postedAt);
   updateNewsBadge();
   showOsNotification();
 }
@@ -204,9 +239,10 @@ async function showOsNotification() {
   fresh.forEach(o => notified.add(o.id));
 
   const first = fresh[0];
-  const body = fresh.length === 1
-    ? (first.author.nickname + 'さんが「' + (first.title || '名前のない場所') + '」を記録しました')
-    : (first.author.nickname + 'さんほか、' + fresh.length + '件の新しい記録があります');
+  const one = first.kind === 'like'
+    ? (first.author.nickname + 'さんが「' + ((first.target && first.target.title) || '名前のない場所') + '」にいいねしました')
+    : (first.author.nickname + 'さんが「' + (first.visit.title || '名前のない場所') + '」を記録しました');
+  const body = fresh.length === 1 ? one : (one + ' ほか' + (fresh.length - 1) + '件');
   try {
     const reg = await navigator.serviceWorker.getRegistration();
     // スマホでは new Notification() が使えないので、Service Worker 経由で出す
@@ -226,25 +262,43 @@ function openNews() {
     p.textContent = '新しい記録はありません。';
     box.append(p);
   }
-  for (const o of news) {
+  for (const n of news) {
     const row = el('button', 'listrow newsrow');
     const th = el('div', 'lthumb');
-    window.SocialUI.paintAvatar(th, o.author);
+    window.SocialUI.paintAvatar(th, n.author);
     const body = el('div', 'lbody');
     const t = el('div', 'ltitle');
-    t.textContent = o.title || '(名前なし)';
     const meta = el('div', 'lmeta');
-    const who = el('em'); who.textContent = o.author.nickname;
-    meta.append(who, document.createTextNode(' · ' + relTime(o.postedAt) +
-      (o.visibility === 'public' ? ' · 全体に公開' : ' · 友達だけ')));
-    body.append(t, meta);
-    if (o.comment) { const c = el('div', 'lcomment'); c.textContent = o.comment; body.append(c); }
-    row.append(th, body);
-    row.addEventListener('click', () => {
-      hide('#news-bg');
-      map.setView(o.lat, o.lng, Math.max(map.zoom, 15));
-      openOther(o);
-    });
+    const who = el('em'); who.textContent = n.author.nickname;
+
+    if (n.kind === 'like') {
+      t.textContent = '♥ ' + ((n.target && n.target.title) || '(名前なし)');
+      meta.append(who, document.createTextNode(' · ' + relTime(n.postedAt) + ' · あなたの記録にいいね'));
+      body.append(t, meta);
+      row.append(th, body);
+      row.addEventListener('click', () => {
+        hide('#news-bg');
+        if (n.target) { map.setView(n.target.lat, n.target.lng, Math.max(map.zoom, 15)); openEdit(n.target); }
+      });
+    } else {
+      const o = n.visit;
+      t.textContent = o.title || '(名前なし)';
+      meta.append(who, document.createTextNode(' · ' + relTime(n.postedAt) +
+        (o.visibility === 'public' ? ' · 全体に公開' : ' · 友達だけ')));
+      body.append(t, meta);
+      if (o.comment) { const c = el('div', 'lcomment'); c.textContent = o.comment; body.append(c); }
+      const cnt = likes.counts[o.id] || 0;
+      if (cnt) {
+        const lc = el('div', 'likecount'); lc.textContent = '♥ ' + cnt;
+        body.append(lc);
+      }
+      row.append(th, body);
+      row.addEventListener('click', () => {
+        hide('#news-bg');
+        map.setView(o.lat, o.lng, Math.max(map.zoom, 15));
+        openOther(o);
+      });
+    }
     box.append(row);
   }
   show('#news-bg');
@@ -253,6 +307,40 @@ function openNews() {
   savePrefs();
   news = [];
   updateNewsBadge();
+}
+
+/** いいねのボタンを今の状態に合わせる */
+function renderLike(o) {
+  const btn = $('#o-like');
+  const mine = likes.mine.has(o.id);
+  const n = likes.counts[o.id] || 0;
+  btn.classList.toggle('on', mine);
+  $('#o-like-count').textContent = n;
+  btn.querySelector('.likeheart').textContent = mine ? '♥' : '♡';
+  btn.disabled = !(supa && supa.signedIn);
+  $('#o-like-note').textContent = (supa && supa.signedIn)
+    ? (mine ? 'いいね済み' : '')
+    : 'ログインするといいねできます';
+}
+
+async function toggleLike(o) {
+  if (!supa || !supa.signedIn) return;
+  const btn = $('#o-like');
+  const wasMine = likes.mine.has(o.id);
+  // 押した手応えを先に返し、失敗したら戻す
+  if (wasMine) { likes.mine.delete(o.id); likes.counts[o.id] = Math.max(0, (likes.counts[o.id] || 1) - 1); }
+  else { likes.mine.add(o.id); likes.counts[o.id] = (likes.counts[o.id] || 0) + 1; }
+  renderLike(o);
+  btn.disabled = true;
+  try {
+    if (wasMine) await social.unlike(o.id); else await social.like(o.id);
+  } catch (e) {
+    if (wasMine) { likes.mine.add(o.id); likes.counts[o.id] = (likes.counts[o.id] || 0) + 1; }
+    else { likes.mine.delete(o.id); likes.counts[o.id] = Math.max(0, (likes.counts[o.id] || 1) - 1); }
+    toast('いいねできませんでした: ' + e.message);
+  }
+  btn.disabled = false;
+  renderLike(o);
 }
 
 function relTime(ts) {
@@ -546,6 +634,7 @@ function syncMenu() {
   updateNotifyHint();
   $('#n-enabled').checked = prefs.notify;
   $('#n-follow').checked = prefs.notifyFollow;
+  $('#n-like').checked = prefs.notifyLike;
   const sel = $('#s-grid');
   sel.textContent = '';
   for (const lv of G.GRID_LEVELS) {
@@ -709,11 +798,15 @@ async function boot() {
 
   $('#n-enabled').checked = prefs.notify;
   $('#n-follow').checked = prefs.notifyFollow;
+  $('#n-like').checked = prefs.notifyLike;
   $('#n-enabled').addEventListener('change', e => {
     prefs.notify = e.target.checked; savePrefs(); checkNews();
   });
   $('#n-follow').addEventListener('change', e => {
     prefs.notifyFollow = e.target.checked; savePrefs(); checkNews();
+  });
+  $('#n-like').addEventListener('change', e => {
+    prefs.notifyLike = e.target.checked; savePrefs(); checkNews();
   });
   $('#n-permit').addEventListener('click', async () => {
     if (typeof Notification === 'undefined') return;

@@ -13,7 +13,7 @@ const http = require('http');
 const { randomUUID } = require('crypto');
 
 function createMock() {
-  const db = { users: [], profiles: [], follows: [], blocks: [], reports: [],
+  const db = { users: [], profiles: [], follows: [], blocks: [], reports: [], likes: [],
                visits: [], photos: [], objects: new Map() };
   const tokens = new Map();                 // access_token → user_id
 
@@ -159,6 +159,11 @@ function createMock() {
           const v = db.visits.find(x => x.id === ph.visit_id);
           return v && canSeeVisit(me, v);
         });
+        // いいねも、その記録が見えるときだけ見える
+        if (table === 'likes') rows = rows.filter(lk => {
+          const v = db.visits.find(x => x.id === lk.visit_id);
+          return v && canSeeVisit(me, v);
+        });
         return send(200, pick(applyFilters(rows, params), params.get('select')));
       }
 
@@ -171,6 +176,17 @@ function createMock() {
         for (const r of rows) {
           const row = Object.assign({}, r);
           if ('user_id' in row && row.user_id !== me) return send(403, { message: 'row violates row-level security policy' });
+          if (table === 'likes') {
+            if (row.user_id !== me) return send(403, { message: 'row violates row-level security policy' });
+            const v = db.visits.find(x => x.id === row.visit_id);
+            if (!v || !canSeeVisit(me, v)) {
+              return send(403, { message: 'new row violates row-level security policy' });
+            }
+            const dup = db.likes.find(x => x.visit_id === row.visit_id && x.user_id === row.user_id);
+            if (dup) { out.push(dup); continue; }
+            row.created_at = new Date().toISOString();
+            db.likes.push(row); out.push(row); continue;
+          }
           if (table === 'blocks') {
             if (row.blocker !== me) return send(403, { message: 'row violates row-level security policy' });
             if (row.blocker === row.blocked) return send(400, { message: 'no_self_block' });
@@ -238,7 +254,10 @@ function createMock() {
           if (owner !== me) return send(403, { message: 'row violates row-level security policy' });
           const i = db[table].indexOf(r);
           if (i >= 0) db[table].splice(i, 1);
-          if (table === 'visits') db.photos = db.photos.filter(ph => ph.visit_id !== r.id);
+          if (table === 'visits') {
+            db.photos = db.photos.filter(ph => ph.visit_id !== r.id);
+            db.likes = db.likes.filter(lk => lk.visit_id !== r.id);
+          }
         }
         return send(204);
       }

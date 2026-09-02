@@ -99,6 +99,16 @@ create index if not exists visits_public_idx on public.visits (visited_at desc)
 create unique index if not exists visits_local_key
   on public.visits (user_id, local_id) where local_id is not null;
 
+-- ------------------------------------------------------------------ いいね
+create table if not exists public.likes (
+  visit_id   uuid not null references public.visits(id) on delete cascade,
+  user_id    uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (visit_id, user_id)
+);
+create index if not exists likes_visit_idx on public.likes (visit_id);
+create index if not exists likes_recent_idx on public.likes (created_at desc);
+
 -- -------------------------------------------------------------------- 通報
 create table if not exists public.reports (
   id         uuid primary key default gen_random_uuid(),
@@ -131,6 +141,7 @@ alter table public.visits   enable row level security;
 alter table public.photos   enable row level security;
 alter table public.blocks   enable row level security;
 alter table public.reports  enable row level security;
+alter table public.likes    enable row level security;
 
 -- ---- プロフィール: 誰でも読める。書けるのは本人だけ。
 drop policy if exists profiles_read on public.profiles;
@@ -174,6 +185,26 @@ create policy blocks_insert on public.blocks
 drop policy if exists blocks_delete on public.blocks;
 create policy blocks_delete on public.blocks
   for delete using (auth.uid() = blocker);
+
+-- ---- いいね: その記録が見える人だけが読み書きできる。
+-- 副問い合わせにも visits の見える条件がかかるので、見えない記録のいいねは
+-- 数えることも付けることもできない。
+drop policy if exists likes_read on public.likes;
+create policy likes_read on public.likes
+  for select using (
+    exists (select 1 from public.visits v where v.id = visit_id)
+  );
+
+drop policy if exists likes_insert on public.likes;
+create policy likes_insert on public.likes
+  for insert with check (
+    auth.uid() = user_id
+    and exists (select 1 from public.visits v where v.id = visit_id)
+  );
+
+drop policy if exists likes_delete on public.likes;
+create policy likes_delete on public.likes
+  for delete using (auth.uid() = user_id);
 
 -- ---- 通報: 出すのは誰でも。読めるのは自分が出した分だけ。
 drop policy if exists reports_insert on public.reports;
