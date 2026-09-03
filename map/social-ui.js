@@ -88,6 +88,9 @@
 
   function showAccountSection() {
     const configured = UI.supa && UI.supa.configured;
+    // つなぎ先がアプリに入っているなら、その設定欄は見せない
+    const built = global.SupaConfig.isBuiltIn();
+    $('#a-forget').classList.toggle('hidden', built);
     const signedIn = configured && UI.supa.signedIn;
     $('#a-setup').classList.toggle('hidden', configured);
     $('#a-auth').classList.toggle('hidden', !configured || signedIn);

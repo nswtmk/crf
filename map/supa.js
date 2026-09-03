@@ -224,13 +224,26 @@
      ------------------------------------------------------------------ */
   const KEY_CONF = 'trailmap-supabase-v1';
 
+  /**
+   * つなぎ先を決める。config.js に書いてあればそれを使い、
+   * 使う人は URL やキーを打たずに済む。書いていなければ画面から設定する。
+   */
   function loadConfig() {
+    const built = global.TRAILMAP_SUPABASE;
+    if (built && built.url && built.anonKey) {
+      return { url: String(built.url).replace(/\/+$/, ''), anonKey: built.anonKey, builtIn: true };
+    }
     try {
       const d = JSON.parse(localStorage.getItem(KEY_CONF) || 'null');
-      if (d && d.url && d.anonKey) return d;
+      if (d && d.url && d.anonKey) return { url: d.url, anonKey: d.anonKey, builtIn: false };
     } catch (e) { /* 未設定として扱う */ }
-    return (global.TRAILMAP_SUPABASE && global.TRAILMAP_SUPABASE.url)
-      ? global.TRAILMAP_SUPABASE : null;
+    return null;
+  }
+
+  /** アプリに埋め込まれているか (画面から設定させる必要があるか) */
+  function isBuiltIn() {
+    const b = global.TRAILMAP_SUPABASE;
+    return !!(b && b.url && b.anonKey);
   }
 
   function saveConfig(url, anonKey) {
@@ -239,6 +252,8 @@
   function clearConfig() { try { localStorage.removeItem(KEY_CONF); } catch (e) {} }
 
   global.Supa = Supa;
-  global.SupaConfig = { load: loadConfig, save: saveConfig, clear: clearConfig, KEY_CONF, KEY_SESSION };
+  global.SupaConfig = {
+    load: loadConfig, save: saveConfig, clear: clearConfig, isBuiltIn, KEY_CONF, KEY_SESSION,
+  };
 
 })(typeof window !== 'undefined' ? window : globalThis);
