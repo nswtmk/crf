@@ -251,6 +251,50 @@
     await renderFriendList();
   }
 
+  /**
+   * 貼られた文字列からプロジェクトURLを取り出す。
+   * 管理画面のアドレスをそのまま貼る人が多いので、そこからも拾えるようにする。
+   * 判定を厳しくして弾くより、直せるものは直したほうが親切。
+   */
+  function normalizeProjectUrl(raw) {
+    let s = String(raw || '').trim().replace(/\s+/g, '');
+    if (!s) return { error: 'プロジェクトURLを入れてください。' };
+    // URL に使えない文字が入っていたら、貼るものを間違えている
+    if (/[^\x21-\x7E]/.test(s)) {
+      return { error: 'URLではないものが貼られているようです。\n' +
+        'Project Settings → Data API の「Project URL」を貼ってください。' };
+    }
+    if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+
+    let u;
+    try { u = new URL(s); } catch (e) { return { error: 'URLとして読めませんでした。貼り直してください。' }; }
+
+    // 管理画面のアドレス: https://supabase.com/dashboard/project/<ref>
+    const dash = u.pathname.match(/\/project\/([a-z0-9]{16,})/i);
+    if (/supabase\.(com|io)$/i.test(u.hostname) && dash) {
+      return { url: 'https://' + dash[1] + '.supabase.co', note: 'dashboard' };
+    }
+    if (/supabase\.(com|io)$/i.test(u.hostname)) {
+      return { error: 'それは管理画面のアドレスです。\n' +
+        'Project Settings → Data API にある「Project URL」' +
+        '(https://〇〇〇〇.supabase.co の形) を貼ってください。' };
+    }
+
+    // 末尾に /rest/v1 などが付いていても、根っこだけ使う
+    const origin = u.origin;
+    if (/\.supabase\.(co|in)$/i.test(u.hostname)) {
+      return { url: origin, note: u.pathname !== '/' ? 'path' : null };
+    }
+    // 自分で立てたものなど、上に当てはまらない場合も通す。
+    // ただし、ちゃんとしたドメインの形をしていることは確かめる。
+    if (u.protocol === 'https:' && /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i.test(u.hostname)) {
+      return { url: origin, note: 'custom' };
+    }
+    return { error: 'プロジェクトURLの形になっていません。\n' +
+      'Project Settings → Data API の「Project URL」' +
+      '(https://〇〇〇〇.supabase.co の形) を貼ってください。' };
+  }
+
   /* ---------- 通報とブロック ---------- */
 
   let reporting = null, reportReason = 'offensive';
@@ -322,11 +366,12 @@
 
     // 接続先の設定
     $('#a-save-conf').addEventListener('click', () => {
-      const url = $('#a-url').value.trim().replace(/\/+$/, '');
+      const raw = $('#a-url').value;
       const key = $('#a-key').value.trim();
-      if (!/^https:\/\/[\w-]+\.supabase\.co$/.test(url)) {
-        alert('プロジェクトURLの形が違います。https://xxxx.supabase.co の形です。'); return;
-      }
+      const res = normalizeProjectUrl(raw);
+      if (res.error) { alert(res.error); return; }
+      const url = res.url;
+      if (res.note) $('#a-url').value = url;
       // 旧: eyJ... (anon) / 新: sb_publishable_... のどちらも受け付ける。
       // service_role や secret を貼ってしまう事故だけは止める。
       if (/service_role/.test(key) || /^sb_secret_/.test(key)) {
@@ -459,7 +504,7 @@
 
   global.SocialUI = {
     init, refreshAvatar, openAccount, openFriends, showAccountSection,
-    openReport, blockAuthor, EMOJI, COLORS, paintAvatar, squareThumb,
+    openReport, blockAuthor, EMOJI, COLORS, paintAvatar, squareThumb, normalizeProjectUrl,
     setCurrentOther: v => { UI.currentOther = v; },
   };
 

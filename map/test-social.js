@@ -17,6 +17,18 @@ globalThis.window = globalThis;
 require('./supa.js');
 require('./social.js');
 
+// social-ui.js は画面部品を触るので、最低限の受け皿を用意して読み込む
+const _stub = { addEventListener() {}, append() {}, querySelectorAll: () => [],
+                classList: { toggle() {}, add() {}, remove() {} }, style: {}, dataset: {} };
+globalThis.document = {
+  addEventListener() {}, querySelector: () => _stub, querySelectorAll: () => [],
+  createElement: () => Object.create(_stub),
+};
+// Node 22 の navigator は書き換えられないが、social-ui.js は使わないので触らない
+globalThis.alert = () => {};
+globalThis.confirm = () => true;
+require('./social-ui.js');
+
 let pass = 0, fail = 0;
 const ok = (n, c, e = '') => { c ? pass++ : fail++; console.log((c ? '  ok  ' : '  FAIL') + '  ' + n + (e ? '  ' + e : '')); };
 const head = t => console.log('\n=== ' + t + ' ===');
@@ -45,6 +57,36 @@ function schemaSearchColumns() {
   const A = newClient(url);   // あなた
   const B = newClient(url);   // 友達になる人
   const C = newClient(url);   // 他人
+
+  head('プロジェクトURLの読み取り');
+  {
+    // 管理画面のアドレスを貼る人が多いので、直せるものは直す
+    const N = globalThis.SocialUI.normalizeProjectUrl;
+    const want = 'https://abcdefghijklmnop.supabase.co';
+    const good = [
+      ['そのままの形', want],
+      ['末尾スラッシュ', want + '/'],
+      ['前後の空白', '  ' + want + '  '],
+      ['末尾にパス', want + '/rest/v1'],
+      ['https 抜け', 'abcdefghijklmnop.supabase.co'],
+      ['管理画面のアドレス', 'https://supabase.com/dashboard/project/abcdefghijklmnop'],
+      ['管理画面の設定ページ', 'https://supabase.com/dashboard/project/abcdefghijklmnop/settings/api'],
+    ];
+    for (const [label, input] of good) {
+      const r = N(input);
+      ok(label + ' を正しく読む', r.url === want, r.url || r.error);
+    }
+    const bad = [
+      ['空', ''],
+      ['日本語', 'これはURLではない'],
+      ['プロジェクトでない管理画面', 'https://supabase.com/dashboard'],
+      ['キーを貼ってしまった', 'sb_publishable_abcdefghijklmnop'],
+    ];
+    for (const [label, input] of bad) {
+      const r = N(input);
+      ok(label + ' は断る', !!r.error, r.url || r.error);
+    }
+  }
 
   head('サインアップとプロフィール');
   await A.supa.signUp('a@example.com', 'password1');
