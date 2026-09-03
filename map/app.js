@@ -541,7 +541,12 @@ async function saveEdit() {
   editing.title = $('#f-title').value.trim();
   editing.comment = $('#f-comment').value.trim();
   const d = $('#f-date').value;
-  if (d) { const t = new Date(d).getTime(); if (isFinite(t)) editing.ts = t; }
+  if (d) {
+    const t = new Date(d).getTime();
+    // 日付欄は分までしか持てない。触っていないなら元の時刻をそのまま残す。
+    // 丸めてしまうと、同じ分に作った記録の並び順が定まらなくなる。
+    if (isFinite(t) && d !== toLocalInput(editing.ts)) editing.ts = t;
+  }
   await Store.putVisit(editing);
   const saved = editing;
   hide('#edit-bg');
@@ -555,6 +560,9 @@ async function saveEdit() {
       const r = await social.pushVisit(saved);
       if (r && r.remoteId) { saved.remoteId = r.remoteId; await Store.putVisit(saved); }
       if (r && r.removed)  { saved.remoteId = null;       await Store.putVisit(saved); }
+      // 採番された id を画面側の一覧にも行き渡らせる。ここを怠ると、
+      // 直後に消したときサーバーに残り、友達には見え続けてしまう。
+      if (r) await reload();
     } catch (e) {
       toast('共有できませんでした: ' + e.message);
     }
@@ -839,9 +847,14 @@ async function boot() {
   $('#f-delete').addEventListener('click', async () => {
     if (!editing) return;
     if (!confirm('この記録を消します。元に戻せません。よろしいですか?')) return;
-    if (editing.remoteId && social && supa && supa.signedIn) {
-      try { await social.deleteRemote(editing); }
-      catch (e) { if (!confirm('サーバー側を消せませんでした (' + e.message + ')。端末からだけ消しますか?')) return; }
+    if (social && supa && supa.signedIn) {
+      try {
+        // id を控えていなくても、端末側の id を手がかりに探して消す。
+        // 消したつもりのものが人に見え続けるのが、いちばん困る間違いなので。
+        await social.deleteRemote(editing);
+      } catch (e) {
+        if (!confirm('サーバー側を消せませんでした (' + e.message + ')。端末からだけ消しますか?')) return;
+      }
     }
     for (const pid of (editing.photos || [])) await Store.delPhoto(pid);
     await Store.delVisit(editing.id);

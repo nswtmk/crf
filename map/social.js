@@ -274,10 +274,22 @@
       return saved ? { remoteId: saved.id } : null;
     }
 
+    /**
+     * サーバー側の記録を消す。
+     * remoteId を控えていなくても、端末側の id (local_id) で探して消す。
+     * 「消したのに人には見えたまま」が最も避けたい状態なので、二重に手を打つ。
+     */
     async deleteRemote(v) {
-      if (!this.signedIn || !v.remoteId) return;
-      await this.supa.remove('photos', 'visit_id=eq.' + v.remoteId).catch(() => {});
-      await this.supa.remove('visits', 'id=eq.' + v.remoteId + '&user_id=eq.' + this.supa.userId);
+      if (!this.signedIn) return;
+      const me = this.supa.userId;
+      if (v.remoteId) {
+        await this.supa.remove('photos', 'visit_id=eq.' + v.remoteId).catch(() => {});
+        await this.supa.remove('visits', 'id=eq.' + v.remoteId + '&user_id=eq.' + me);
+      }
+      if (v.id) {
+        await this.supa.remove('visits',
+          'local_id=eq.' + encodeURIComponent(v.id) + '&user_id=eq.' + me);
+      }
     }
 
     /** 自分の記録をまとめて反映する。結果は {id: remoteId} の対応表。 */

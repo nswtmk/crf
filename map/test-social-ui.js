@@ -389,15 +389,39 @@ async function addVisit(pg, x, y, title, vis) {
 
   head('10. 削除するとみんなから消える');
   const seenBefore = await B.pg.$$eval('.pin.other', ns => ns.length);
+  console.log('  [調査] サーバー上の記録:', JSON.stringify(mock.db.visits.map(v => v.title + '/' + v.visibility)));
+  console.log('  [調査] B に見えている数:', seenBefore);
   await A.pg.click('.pin.shared'); await A.pg.waitForTimeout(500);
   ok('自分のピンから編集が開く', await A.pg.isVisible('#f-delete'));
+  console.log('  [調査] 消そうとしている記録:', await A.pg.inputValue('#f-title'));
   const answerAll2 = d => d.accept();
   A.pg.on('dialog', answerAll2);
   await A.pg.click('#f-delete'); await A.pg.waitForTimeout(1400);
   A.pg.off('dialog', answerAll2);
+  console.log('  [調査] 削除後のサーバー:', JSON.stringify(mock.db.visits.map(v => v.title + '/' + v.visibility)));
   await B.pg.reload({ waitUntil: 'networkidle' }); await B.pg.waitForTimeout(1600);
   const bPins3 = await B.pg.$$eval('.pin.other', ns => ns.length);
   ok('友達の画面からも1件減る', bPins3 === seenBefore - 1, seenBefore + ' → ' + bPins3);
+
+  head('10b. 作った直後に消してもサーバーに残らない');
+  {
+    const before = mock.db.visits.length;
+    await addVisit(A.pg, 130, 620, '作ってすぐ消す', '全体に公開');
+    ok('いったんサーバーに乗る', mock.db.visits.length === before + 1,
+       mock.db.visits.length + '件');
+    // 「最初の共有ピン」ではなく、名前で狙って選ぶ
+    await A.pg.click('.pin[title="作ってすぐ消す"]'); await A.pg.waitForTimeout(600);
+    const title = await A.pg.inputValue('#f-title');
+    ok('狙った記録が開く', title === '作ってすぐ消す', title);
+    const ans = d => d.accept();
+    A.pg.on('dialog', ans);
+    await A.pg.click('#f-delete'); await A.pg.waitForTimeout(1500);
+    A.pg.off('dialog', ans);
+    ok('消した記録がサーバーから消える',
+       !mock.db.visits.some(v => v.title === '作ってすぐ消す'),
+       '消そうとした: ' + title + ' / 残り: ' +
+       JSON.stringify(mock.db.visits.map(v => v.title)));
+  }
 
   head('11. ログアウトしても端末の記録は残る');
   const before = (await A.pg.$$('.pin')).length;

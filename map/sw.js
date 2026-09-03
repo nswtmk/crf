@@ -1,7 +1,7 @@
 /* アプリ本体はキャッシュしてオフラインでも起動できるようにする。
    地図タイルは別扱いで、一度見た範囲だけを上限つきで貯める。
    ファイルを更新したら SHELL の版を上げること。 */
-const SHELL = 'trailmap-shell-v5';
+const SHELL = 'trailmap-shell-v6';
 const TILES = 'trailmap-tiles-v1';
 const TILE_LIMIT = 1200;
 

@@ -162,6 +162,18 @@ function schemaSearchColumns() {
   ok('友達からも見えなくなる', (await B.social.fetchOthers()).length === 1);
 
   head('削除');
+  {
+    // id を控え損ねていても消せること。控え損ねると、消したつもりのものが
+    // 人には見えたまま残る。
+    const orphan = { id: 'orphan1', lat: 34.9, lng: 138.9, ts: Date.now(),
+                     title: '控え損ねた記録', comment: '', visibility: 'public' };
+    await A.social.pushVisit(orphan);
+    ok('サーバーにある', db.visits.some(v => v.local_id === 'orphan1'));
+    // remoteId を知らない状態を作る
+    await A.social.deleteRemote({ id: 'orphan1' });
+    ok('端末側の id だけでも消せる', !db.visits.some(v => v.local_id === 'orphan1'),
+       JSON.stringify(db.visits.map(v => v.local_id)));
+  }
   await A.social.deleteRemote(pub);
   ok('サーバーから消える', db.visits.length === 0);
   ok('誰からも見えない', (await C.social.fetchOthers()).length === 0);
