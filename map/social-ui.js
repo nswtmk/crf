@@ -327,7 +327,15 @@
       if (!/^https:\/\/[\w-]+\.supabase\.co$/.test(url)) {
         alert('プロジェクトURLの形が違います。https://xxxx.supabase.co の形です。'); return;
       }
-      if (key.length < 20) { alert('anon キーが短すぎます。貼り間違いを確認してください。'); return; }
+      // 旧: eyJ... (anon) / 新: sb_publishable_... のどちらも受け付ける。
+      // service_role や secret を貼ってしまう事故だけは止める。
+      if (/service_role/.test(key) || /^sb_secret_/.test(key)) {
+        alert('それは秘密のキー (service_role / secret) です。\n' +
+              'すべての制限を素通りしてしまうので、絶対に使わないでください。\n' +
+              'anon / public / publishable と書かれたほうを貼ってください。');
+        return;
+      }
+      if (key.length < 20) { alert('キーが短すぎます。貼り間違いを確認してください。'); return; }
       global.SupaConfig.save(url, key);
       UI.supa.url = url; UI.supa.anonKey = key;
       showAccountSection();

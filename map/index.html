@@ -186,8 +186,10 @@
       </p>
       <label class="field"><span>プロジェクトURL</span>
         <input type="url" id="a-url" placeholder="https://xxxx.supabase.co" autocomplete="off"></label>
-      <label class="field"><span>anon キー</span>
-        <input type="text" id="a-key" placeholder="eyJhbGciOi..." autocomplete="off"></label>
+      <label class="field"><span>キー (anon / publishable)</span>
+        <input type="text" id="a-key" placeholder="eyJhbGciOi... または sb_publishable_..." autocomplete="off"></label>
+      <p class="hint">Supabase の <strong>API Keys</strong> にある公開用のキーです。
+        <strong>service_role / secret のほうは使いません。</strong></p>
       <div class="btnrow"><button id="a-save-conf" class="primary">つなぐ</button></div>
     </div>
 

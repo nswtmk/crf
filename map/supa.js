@@ -51,8 +51,19 @@
 
     _headers(extra) {
       const h = Object.assign({ apikey: this.anonKey, 'Content-Type': 'application/json' }, extra || {});
-      if (this.signedIn) h.Authorization = 'Bearer ' + this.session.access_token;
-      return h;
+      // 未ログインでも Authorization を付ける。公式ライブラリと同じ振る舞いで、
+      // apikey だけだと構成によっては素通しされないことがある。
+      h.Authorization = 'Bearer ' + (this.signedIn ? this.session.access_token : this.anonKey);
+      return Object.assign(h, extra || {});
+    }
+
+    /** ログイン前に使うヘッダ。キーそのものを持ち主として名乗る。 */
+    _publicHeaders() {
+      return {
+        apikey: this.anonKey,
+        Authorization: 'Bearer ' + this.anonKey,
+        'Content-Type': 'application/json',
+      };
     }
 
     /** 期限が近ければ更新する。失敗したらログアウト扱い。 */
@@ -62,7 +73,7 @@
       try {
         const res = await fetch(this.url + '/auth/v1/token?grant_type=refresh_token', {
           method: 'POST',
-          headers: { apikey: this.anonKey, 'Content-Type': 'application/json' },
+          headers: this._publicHeaders(),
           body: JSON.stringify({ refresh_token: this.session.refresh_token }),
         });
         if (!res.ok) throw new Error('refresh failed');
@@ -79,7 +90,7 @@
     async signUp(email, password) {
       const res = await fetch(this.url + '/auth/v1/signup', {
         method: 'POST',
-        headers: { apikey: this.anonKey, 'Content-Type': 'application/json' },
+        headers: this._publicHeaders(),
         body: JSON.stringify({ email, password }),
       });
       const d = await res.json().catch(() => ({}));
@@ -91,7 +102,7 @@
     async signIn(email, password) {
       const res = await fetch(this.url + '/auth/v1/token?grant_type=password', {
         method: 'POST',
-        headers: { apikey: this.anonKey, 'Content-Type': 'application/json' },
+        headers: this._publicHeaders(),
         body: JSON.stringify({ email, password }),
       });
       const d = await res.json().catch(() => ({}));
@@ -160,7 +171,7 @@
         method: 'POST',
         headers: {
           apikey: this.anonKey,
-          Authorization: 'Bearer ' + (this.session ? this.session.access_token : ''),
+          Authorization: 'Bearer ' + (this.session ? this.session.access_token : this.anonKey),
           'Content-Type': blob.type || 'image/jpeg',
           'x-upsert': 'true',
         },
@@ -180,7 +191,7 @@
       const res = await fetch(this.url + '/storage/v1/object/photos/' + path, {
         headers: {
           apikey: this.anonKey,
-          Authorization: 'Bearer ' + (this.session ? this.session.access_token : ''),
+          Authorization: 'Bearer ' + (this.session ? this.session.access_token : this.anonKey),
         },
       });
       if (!res.ok) return null;

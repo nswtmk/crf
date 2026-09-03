@@ -55,7 +55,7 @@ async function newUser(b, email) {
   await pg.goto('http://localhost:8099/map/index.html', { waitUntil: 'networkidle' });
   await pg.evaluate(() => { localStorage.clear(); indexedDB.deleteDatabase('trailmap'); });
   await pg.evaluate(u => localStorage.setItem('trailmap-supabase-v1',
-    JSON.stringify({ url: u, anonKey: 'anon-test-key-1234567890' })), MOCK_URL);
+    JSON.stringify({ url: u, anonKey: 'sb_publishable_testkey1234567890' })), MOCK_URL);
   await pg.reload({ waitUntil: 'networkidle' });
   await pg.waitForTimeout(500);
   return { pg, errs, ctx };
@@ -95,6 +95,10 @@ async function addVisit(pg, x, y, title, vis) {
   const A = await newUser(b, mail('a'));
   const B = await newUser(b, mail('b'));
   const C = await newUser(b, mail('c'));
+
+  head('0. 新しい形式のキー (publishable) で接続できる');
+  ok('publishable キーで動く', await A.pg.evaluate(() =>
+    JSON.parse(localStorage.getItem('trailmap-supabase-v1')).anonKey.startsWith('sb_publishable_')));
 
   head('1. 未設定・未ログインでも地図は動く');
   ok('ピンを立てられる', true);
