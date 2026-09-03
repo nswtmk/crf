@@ -13,8 +13,8 @@
    ========================================================================= */
 
 window.TRAILMAP_SUPABASE = {
-  url: '',        // 例: 'https://xxxxxxxxxxxx.supabase.co'
-  anonKey: '',    // 例: 'sb_publishable_xxxxxxxx' または 'eyJhbGciOi...'
+  url: 'https://pvzppkyzxrzzylvtawod.supabase.co',
+  anonKey: 'sb_publishable_Tz-KwPD59sAZ_dG05b-g2w_SG3UWec_',
 };
 
 // 通報や不具合の連絡先 (App Store のガイドラインで掲載が求められている)
